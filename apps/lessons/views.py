@@ -9,23 +9,23 @@ from .serializers import BlockSerializer
 
 class BlocksView(GenericAPIView):
     serializer_class = BlockSerializer
-    def get_lesson(self, request, pk):
-        lesson = Lesson.objects.select_related('module__track').filter(pk=pk).first()
+    def get_lesson(self, request, short_id):
+        lesson = Lesson.objects.select_related('module__track').filter(short_id=short_id).first()
         if not lesson:
             raise NotFound()
         if not is_admin(request.user) and not (lesson.status == 'PUBLISHED' and lesson.module.is_published and lesson.module.track.is_published):
             raise PermissionDenied()
         return lesson
 
-    def get(self, request, pk):
-        lesson = self.get_lesson(request, pk)
+    def get(self, request, short_id):
+        lesson = self.get_lesson(request, short_id)
         return Response(BlockSerializer(lesson.blocks.all(), many=True).data)
 
     @transaction.atomic
-    def put(self, request, pk):
+    def put(self, request, short_id):
         if not is_admin(request.user):
             raise PermissionDenied()
-        lesson = self.get_lesson(request, pk)
+        lesson = self.get_lesson(request, short_id)
         Lesson.objects.select_for_update().get(pk=lesson.pk)
         if not isinstance(request.data, list):
             raise ValidationError({'blocks': 'Ожидается список блоков'})

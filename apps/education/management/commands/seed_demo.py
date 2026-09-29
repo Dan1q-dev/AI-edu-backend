@@ -7,11 +7,11 @@ class Command(BaseCommand):
     help = 'Create two demo learning tracks with one sample lesson and test'
     def handle(self, *args, **options):
         tracks = [
-            ('it-specialists', 'IT-специалисты', 'Основы технологий и искусственного интеллекта'),
-            ('humanities', 'Гуманитарные направления', 'Технологии в гуманитарных исследованиях'),
+            ('IT-специалисты', 'Основы технологий и искусственного интеллекта'),
+            ('Гуманитарные направления', 'Технологии в гуманитарных исследованиях'),
         ]
-        for slug, title, description in tracks:
-            track, _ = LearningTrack.objects.get_or_create(slug=slug, defaults={'title': title, 'description': description, 'is_published': True})
+        for title, description in tracks:
+            track, _ = LearningTrack.objects.get_or_create(title=title, defaults={'description': description, 'is_published': True})
             module, _ = Module.objects.get_or_create(track=track, title='Введение', defaults={'description': 'Первые шаги', 'position': 0, 'is_published': True})
             lesson, _ = Lesson.objects.get_or_create(module=module, title='Что такое искусственный интеллект?', defaults={'description': 'Знакомство с ИИ', 'position': 0, 'status': 'PUBLISHED'})
             if not lesson.blocks.exists():

@@ -10,7 +10,7 @@ class PlatformFlowTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_user(email='admin@example.test', password='StrongPass321!', role='ADMIN')
         self.student = User.objects.create_user(email='student@example.test', password='StrongPass321!')
-        self.track = LearningTrack.objects.create(title='IT', slug='it', is_published=True)
+        self.track = LearningTrack.objects.create(title='IT', is_published=True)
         self.module = Module.objects.create(track=self.track, title='Start', is_published=True)
         self.lesson = Lesson.objects.create(module=self.module, title='Intro', status='DRAFT')
         self.admin_client = APIClient(enforce_csrf_checks=True)

@@ -23,6 +23,7 @@ class TrackList(AdminWriteMixin, generics.ListCreateAPIView):
 
 class TrackDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = TrackSerializer
+    lookup_field = 'short_id'
     def get_queryset(self):
         q = LearningTrack.objects.all()
         return q if is_admin(self.request.user) else q.filter(is_published=True)
@@ -41,6 +42,7 @@ class ModuleList(AdminWriteMixin, generics.ListCreateAPIView):
 
 class ModuleDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ModuleSerializer
+    lookup_field = 'short_id'
     def get_queryset(self):
         q = Module.objects.all()
         return q if is_admin(self.request.user) else q.filter(is_published=True, track__is_published=True)
@@ -56,8 +58,9 @@ class LessonList(AdminWriteMixin, generics.ListCreateAPIView):
 class LessonDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = LessonSerializer
     queryset = Lesson.objects.select_related('module__track').all()
+    lookup_field = 'short_id'
     def get_object(self):
-        lesson = get_object_or_404(self.queryset, pk=self.kwargs['pk'])
+        lesson = get_object_or_404(self.queryset, short_id=self.kwargs['short_id'])
         if not is_admin(self.request.user) and not (lesson.status == 'PUBLISHED' and lesson.module.is_published and lesson.module.track.is_published):
             raise PermissionDenied('Урок ещё не опубликован')
         self.check_object_permissions(self.request, lesson)
