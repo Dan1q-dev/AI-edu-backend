@@ -24,6 +24,7 @@ urlpatterns = [
     path('api/v1/lessons/', education.LessonList.as_view()),
     path('api/v1/lessons/<str:short_id>/', education.LessonDetail.as_view()),
     path('api/v1/lessons/<str:short_id>/blocks/', lessons.BlocksView.as_view()),
+    path('api/v1/lessons/<str:short_id>/draft/', lessons.LessonDraftView.as_view()),
     path('api/v1/lessons/<str:short_id>/test/', assessments.TestView.as_view()),
     path('api/v1/tests/<int:pk>/questions/', assessments.QuestionsView.as_view()),
     path('api/v1/lessons/<str:short_id>/attempts/', assessments.AttemptView.as_view()),

@@ -72,6 +72,8 @@ class Lesson(ShortIdModel):
     description = models.TextField(blank=True)
     position = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
+    # Admin edits are staged here so autosave can never change student-visible content.
+    draft_data = models.JSONField(null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     class Meta:

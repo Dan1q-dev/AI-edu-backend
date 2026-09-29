@@ -4,6 +4,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 from apps.accounts.models import User
 from apps.education.models import LearningTrack, Module, Lesson
+from apps.lessons.models import LessonBlock
 from apps.assessments.models import Test, TestAttempt
 
 class PlatformFlowTests(TestCase):
@@ -86,6 +87,26 @@ class PlatformFlowTests(TestCase):
         self.assertEqual(self.call(self.student_client, 'put', path, good).status_code, 403)
         self.call(self.admin_client, 'patch', f'/api/v1/lessons/{self.lesson.short_id}/', {'status': 'PUBLISHED'})
         self.assertEqual(self.student_client.get(path).status_code, 200)
+
+    def test_editor_draft_does_not_change_published_lesson_until_publish(self):
+        self.lesson.status = 'PUBLISHED'
+        self.lesson.save()
+        LessonBlock.objects.create(lesson=self.lesson, type='TEXT', position=0, content='Published version')
+        path = f'/api/v1/lessons/{self.lesson.short_id}/draft/'
+        update = {
+            'title': 'Draft title', 'description': 'Draft summary',
+            'blocks': [{'type': 'TEXT', 'position': 0,
+                        'content': '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Draft version"}]}]}',
+                        'media': None, 'config': {}}],
+        }
+        self.assertEqual(self.call(self.admin_client, 'put', path, update).status_code, 200)
+        self.assertEqual(self.student_client.get(f'/api/v1/lessons/{self.lesson.short_id}/').json()['title'], 'Intro')
+        public = self.student_client.get(f'/api/v1/lessons/{self.lesson.short_id}/blocks/').json()
+        self.assertEqual(public[0]['content'], 'Published version')
+        self.assertEqual(self.call(self.admin_client, 'post', path).status_code, 200)
+        self.assertEqual(self.student_client.get(f'/api/v1/lessons/{self.lesson.short_id}/').json()['title'], 'Draft title')
+        public = self.student_client.get(f'/api/v1/lessons/{self.lesson.short_id}/blocks/').json()
+        self.assertIn('Draft version', public[0]['content'])
 
     def test_test_secrecy_limits_and_versioned_results(self):
         self.lesson.status = 'PUBLISHED'; self.lesson.save()
