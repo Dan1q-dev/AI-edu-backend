@@ -17,6 +17,8 @@ urlpatterns = [
     path('api/v1/auth/password/', accounts.PasswordView.as_view()),
     path('api/v1/tracks/', education.TrackList.as_view()),
     path('api/v1/tracks/<str:short_id>/', education.TrackDetail.as_view()),
+    path('api/v1/courses/', education.CourseList.as_view()),
+    path('api/v1/courses/<str:slug>/', education.CourseDetail.as_view()),
     path('api/v1/modules/', education.ModuleList.as_view()),
     path('api/v1/modules/<str:short_id>/', education.ModuleDetail.as_view()),
     path('api/v1/lessons/', education.LessonList.as_view()),

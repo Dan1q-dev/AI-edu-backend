@@ -6,12 +6,13 @@ from django.middleware.csrf import get_token
 from django.views.decorators.csrf import ensure_csrf_cookie, csrf_protect
 from django.utils.decorators import method_decorator
 from rest_framework import status
+from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.generics import GenericAPIView
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework import serializers
-from .serializers import RegisterSerializer, UserSerializer, LoginSerializer, PasswordSerializer
+from .serializers import RegisterSerializer, UserSerializer, LoginSerializer, PasswordSerializer, ProfileUpdateSerializer
 
 def rate_limit(request, scope, limit=10):
     email = request.data.get('email', '') if hasattr(request.data, 'get') else ''
@@ -69,11 +70,12 @@ class ProfileView(GenericAPIView):
     permission_classes = [IsAuthenticated]
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+    @extend_schema(request=ProfileUpdateSerializer, responses=UserSerializer)
     def patch(self, request):
-        serializer = UserSerializer(request.user, data=request.data, partial=True)
+        serializer = ProfileUpdateSerializer(request.user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data)
+        user = serializer.save()
+        return Response(UserSerializer(user).data)
 
 class PasswordView(GenericAPIView):
     serializer_class = PasswordSerializer

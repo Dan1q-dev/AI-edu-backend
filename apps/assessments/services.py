@@ -65,8 +65,9 @@ def save_test(lesson, data):
 
 @transaction.atomic
 def submit_attempt(test_id, user, answers):
-    test = Test.objects.select_for_update().select_related('lesson__module__track').get(pk=test_id)
-    if not test.is_published or test.lesson.status != 'PUBLISHED' or not test.lesson.module.is_published or not test.lesson.module.track.is_published:
+    test = Test.objects.select_for_update(of=('self',)).get(pk=test_id)
+    from apps.education.access import can_access_lesson
+    if not test.is_published or not can_access_lesson(user, test.lesson):
         raise PermissionDenied()
     if test.max_attempts is not None and TestAttempt.objects.filter(test=test, user=user).count() >= test.max_attempts:
         raise ValidationError({'attempts': 'Лимит попыток исчерпан'})

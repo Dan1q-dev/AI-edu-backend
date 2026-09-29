@@ -9,9 +9,11 @@ from apps.assessments.models import Test, TestAttempt
 class PlatformFlowTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_user(email='admin@example.test', password='StrongPass321!', role='ADMIN')
-        self.student = User.objects.create_user(email='student@example.test', password='StrongPass321!')
         self.track = LearningTrack.objects.create(title='IT', is_published=True)
-        self.module = Module.objects.create(track=self.track, title='Start', is_published=True)
+        self.student = User.objects.create_user(email='student@example.test', password='StrongPass321!', learning_track=self.track)
+        from apps.education.models import Course
+        self.course = Course.objects.create(learning_track=self.track, title='Python', is_published=True)
+        self.module = Module.objects.create(course=self.course, title='Start', is_published=True)
         self.lesson = Lesson.objects.create(module=self.module, title='Intro', status='DRAFT')
         self.admin_client = APIClient(enforce_csrf_checks=True)
         self.admin_client.get('/api/v1/csrf/')
@@ -27,12 +29,32 @@ class PlatformFlowTests(TestCase):
     def test_registration_role_and_csrf(self):
         anonymous = APIClient(enforce_csrf_checks=True)
         path = '/api/v1/auth/register/'
-        payload = {'email': 'new@example.test', 'password': 'NewPass321!', 'role': 'ADMIN'}
+        payload = {'email': 'new@example.test', 'password': 'NewPass321!', 'role': 'ADMIN', 'learning_track': self.track.id}
         self.assertEqual(anonymous.post(path, payload, format='json').status_code, 403)
         anonymous.get('/api/v1/csrf/')
         response = self.call(anonymous, 'post', path, payload)
         self.assertEqual(response.status_code, 201)
         self.assertEqual(User.objects.get(email='new@example.test').role, 'STUDENT')
+        self.assertEqual(User.objects.get(email='new@example.test').learning_track, self.track)
+        missing_track = {'email': 'missing@example.test', 'password': 'NewPass321!'}
+        self.assertEqual(self.call(anonymous, 'post', path, missing_track).status_code, 400)
+        inactive = LearningTrack.objects.create(title='Closed', is_published=True, is_active=False)
+        closed_payload = {'email': 'closed@example.test', 'password': 'NewPass321!', 'learning_track': inactive.id}
+        self.assertEqual(self.call(anonymous, 'post', path, closed_payload).status_code, 400)
+
+    def test_course_hierarchy_and_track_isolation(self):
+        from apps.education.models import Course
+        other_track = LearningTrack.objects.create(title='Other', is_published=True)
+        other_course = Course.objects.create(learning_track=other_track, title='Other course', is_published=True)
+        other_module = Module.objects.create(course=other_course, title='Other module', is_published=True)
+        other_lesson = Lesson.objects.create(module=other_module, title='Other lesson', status='PUBLISHED')
+        self.lesson.status = 'PUBLISHED'
+        self.lesson.save()
+        self.assertEqual(self.student_client.get('/api/v1/courses/').json()['results'][0]['title'], 'Python')
+        self.assertEqual(self.student_client.get(f'/api/v1/courses/{other_course.slug}/').status_code, 404)
+        self.assertEqual(self.student_client.get(f'/api/v1/lessons/{other_lesson.short_id}/').status_code, 404)
+        self.assertEqual(self.student_client.get(f'/api/v1/modules/?course={other_course.id}').json()['results'], [])
+        self.assertEqual(self.student_client.get('/api/v1/modules/?course=invalid').status_code, 400)
 
     def test_login_profile_password_and_logout(self):
         client = APIClient(enforce_csrf_checks=True)
@@ -50,7 +72,7 @@ class PlatformFlowTests(TestCase):
 
     def test_draft_access_and_atomic_block_validation(self):
         path = f'/api/v1/lessons/{self.lesson.short_id}/blocks/'
-        self.assertEqual(self.student_client.get(f'/api/v1/lessons/{self.lesson.short_id}/').status_code, 403)
+        self.assertEqual(self.student_client.get(f'/api/v1/lessons/{self.lesson.short_id}/').status_code, 404)
         self.assertEqual(self.student_client.get(path).status_code, 403)
         good = [{'type': 'TEXT', 'position': 0, 'content': '# Hello', 'media': None, 'config': {}},
                 {'type': 'TEXT', 'position': 1, 'content': 'World', 'media': None, 'config': {}}]

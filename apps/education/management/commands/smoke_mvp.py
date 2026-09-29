@@ -7,7 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management.base import BaseCommand
 from django.test import Client
 from apps.accounts.models import User
-from apps.education.models import LearningTrack, Module, Lesson
+from apps.education.models import LearningTrack, Course, Module, Lesson
 from apps.lessons.models import LessonBlock
 from apps.assessments.models import Test, TestAttempt
 from apps.mediafiles.models import MediaFile
@@ -20,7 +20,7 @@ class Command(BaseCommand):
         admin = User.objects.create_user(email=f'admin-{marker}@example.test', password=secrets.token_urlsafe(20), role='ADMIN')
         admin_client = Client(enforce_csrf_checks=True, HTTP_HOST='localhost')
         student_client = Client(enforce_csrf_checks=True, HTTP_HOST='localhost')
-        track = module = lesson = media = student = None
+        track = course = module = lesson = media = student = None
 
         def send(client, method, path, data):
             token = client.cookies['csrftoken'].value
@@ -32,7 +32,10 @@ class Command(BaseCommand):
             response = send(admin_client, 'post', '/api/v1/tracks/', {'title': 'Smoke track', 'is_published': True})
             assert response.status_code == 201, response.content
             track = LearningTrack.objects.get(pk=response.json()['id'])
-            response = send(admin_client, 'post', '/api/v1/modules/', {'track': track.id, 'title': 'Module', 'position': 0, 'is_published': True})
+            response = send(admin_client, 'post', '/api/v1/courses/', {'learning_track': track.id, 'title': 'Smoke course', 'is_published': True})
+            assert response.status_code == 201, response.content
+            course = Course.objects.get(pk=response.json()['id'])
+            response = send(admin_client, 'post', '/api/v1/modules/', {'course': course.id, 'title': 'Module', 'position': 0, 'is_published': True})
             assert response.status_code == 201, response.content
             module = Module.objects.get(pk=response.json()['id'])
             response = send(admin_client, 'post', '/api/v1/lessons/', {'module': module.id, 'title': 'Lesson', 'position': 0})
@@ -40,10 +43,10 @@ class Command(BaseCommand):
             lesson = Lesson.objects.get(pk=response.json()['id'])
             lesson_url_id = response.json()['short_id']
             student_client.get('/api/v1/csrf/')
-            response = send(student_client, 'post', '/api/v1/auth/register/', {'email': f'student-{marker}@example.test', 'password': secrets.token_urlsafe(20)})
+            response = send(student_client, 'post', '/api/v1/auth/register/', {'email': f'student-{marker}@example.test', 'password': secrets.token_urlsafe(20), 'learning_track': track.id})
             assert response.status_code == 201, response.content
             student = User.objects.get(pk=response.json()['id'])
-            assert student_client.get(f'/api/v1/lessons/{lesson_url_id}/').status_code == 403
+            assert student_client.get(f'/api/v1/lessons/{lesson_url_id}/').status_code == 404
             image = Image.new('RGB', (12, 12), 'blue')
             out = BytesIO(); image.save(out, format='PNG')
             upload = SimpleUploadedFile('diagram.png', out.getvalue(), content_type='image/png')
@@ -78,6 +81,7 @@ class Command(BaseCommand):
                 LessonBlock.objects.filter(lesson=lesson).delete()
                 lesson.delete()
             if module: module.delete()
+            if course: course.delete()
             if track: track.delete()
             if media:
                 media.file.delete(save=False)

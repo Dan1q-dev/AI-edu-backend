@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import PageNumberPagination
 from common.permissions import is_admin
+from apps.education.access import can_access_lesson
 from apps.education.models import Lesson
 from .models import Test, TestAttempt
 from .serializers import TestAdminSerializer, TestStudentSerializer, QuestionAdminSerializer, QuestionStudentSerializer, AttemptSerializer
@@ -17,7 +18,7 @@ class TestView(GenericAPIView):
         if not test: raise NotFound()
         if is_admin(request.user):
             return Response(TestAdminSerializer(test).data)
-        if not test.is_published or lesson.status != 'PUBLISHED' or not lesson.module.is_published or not lesson.module.track.is_published:
+        if not test.is_published or not can_access_lesson(request.user, lesson):
             raise PermissionDenied()
         return Response(TestStudentSerializer(test).data)
 
@@ -31,11 +32,11 @@ class TestView(GenericAPIView):
 class QuestionsView(GenericAPIView):
     serializer_class = QuestionAdminSerializer
     def get(self, request, pk):
-        test = Test.objects.select_related('lesson__module__track').prefetch_related('questions__options').filter(pk=pk).first()
+        test = Test.objects.select_related('lesson__module__course__learning_track').prefetch_related('questions__options').filter(pk=pk).first()
         if not test: raise NotFound()
         if is_admin(request.user): return Response(QuestionAdminSerializer(test.questions.all(), many=True).data)
         lesson = test.lesson
-        if not test.is_published or lesson.status != 'PUBLISHED' or not lesson.module.is_published or not lesson.module.track.is_published:
+        if not test.is_published or not can_access_lesson(request.user, lesson):
             raise PermissionDenied()
         return Response(QuestionStudentSerializer(test.questions.all(), many=True).data)
 
@@ -51,8 +52,10 @@ class QuestionsView(GenericAPIView):
 class AttemptView(GenericAPIView):
     serializer_class = AttemptSerializer
     def get(self, request, short_id):
-        test = Test.objects.filter(lesson__short_id=short_id).first()
+        test = Test.objects.select_related('lesson__module__course__learning_track').filter(lesson__short_id=short_id).first()
         if not test: raise NotFound()
+        if not is_admin(request.user) and (not test.is_published or not can_access_lesson(request.user, test.lesson)):
+            raise NotFound()
         q = TestAttempt.objects.filter(test=test)
         if not is_admin(request.user): q = q.filter(user=request.user)
         paginator = PageNumberPagination()

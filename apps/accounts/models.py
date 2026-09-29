@@ -22,6 +22,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     first_name = models.CharField(max_length=150, blank=True)
     last_name = models.CharField(max_length=150, blank=True)
     role = models.CharField(max_length=10, choices=Role.choices, default=Role.STUDENT)
+    learning_track = models.ForeignKey('education.LearningTrack', null=True, blank=True, on_delete=models.SET_NULL, related_name='students')
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(auto_now_add=True)

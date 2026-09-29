@@ -1,18 +1,21 @@
 from django.core.management.base import BaseCommand
-from apps.education.models import LearningTrack, Module, Lesson
+from apps.education.models import LearningTrack, Course, Module, Lesson
 from apps.lessons.models import LessonBlock
 from apps.assessments.models import Test, Question, Option
 
 class Command(BaseCommand):
-    help = 'Create two demo learning tracks with one sample lesson and test'
+    help = 'Create two demo learning tracks with courses, lessons and tests'
     def handle(self, *args, **options):
         tracks = [
             ('IT-специалисты', 'Основы технологий и искусственного интеллекта'),
             ('Гуманитарные направления', 'Технологии в гуманитарных исследованиях'),
         ]
         for title, description in tracks:
-            track, _ = LearningTrack.objects.get_or_create(title=title, defaults={'description': description, 'is_published': True})
-            module, _ = Module.objects.get_or_create(track=track, title='Введение', defaults={'description': 'Первые шаги', 'position': 0, 'is_published': True})
+            track, _ = LearningTrack.objects.get_or_create(title=title, defaults={'description': description, 'is_published': True, 'is_active': True})
+            track.is_active = True
+            track.save(update_fields=['is_active'])
+            course, _ = Course.objects.get_or_create(learning_track=track, title='Основы искусственного интеллекта', defaults={'description': description, 'is_published': True, 'position': 0})
+            module, _ = Module.objects.get_or_create(course=course, title='Введение', defaults={'description': 'Первые шаги', 'position': 0, 'is_published': True})
             lesson, _ = Lesson.objects.get_or_create(module=module, title='Что такое искусственный интеллект?', defaults={'description': 'Знакомство с ИИ', 'position': 0, 'status': 'PUBLISHED'})
             if not lesson.blocks.exists():
                 LessonBlock.objects.bulk_create([

@@ -46,10 +46,16 @@ class MediaView(GenericAPIView):
         if not media:
             raise NotFound()
         from apps.lessons.models import LessonBlock
-        from apps.education.models import LearningTrack
+        from apps.education.models import LearningTrack, Course
         public_block = LessonBlock.objects.filter(media=media, lesson__status='PUBLISHED',
-            lesson__module__is_published=True, lesson__module__track__is_published=True).exists()
-        public_cover = LearningTrack.objects.filter(cover=media, is_published=True).exists()
+            lesson__module__is_published=True, lesson__module__course__is_published=True,
+            lesson__module__course__learning_track_id=request.user.learning_track_id,
+            lesson__module__course__learning_track__is_published=True,
+            lesson__module__course__learning_track__is_active=True).exists()
+        public_cover = LearningTrack.objects.filter(cover=media, is_published=True, is_active=True,
+            pk=request.user.learning_track_id).exists() or Course.objects.filter(cover=media, is_published=True,
+            learning_track_id=request.user.learning_track_id, learning_track__is_published=True,
+            learning_track__is_active=True).exists()
         if not (is_admin(request.user) or public_block or public_cover):
             raise PermissionDenied()
         return FileResponse(media.file.open('rb'), content_type=media.content_type)
@@ -61,8 +67,8 @@ class MediaView(GenericAPIView):
         if not media:
             raise NotFound()
         from apps.lessons.models import LessonBlock
-        from apps.education.models import LearningTrack
-        if LessonBlock.objects.filter(media=media).exists() or LearningTrack.objects.filter(cover=media).exists():
+        from apps.education.models import LearningTrack, Course
+        if LessonBlock.objects.filter(media=media).exists() or LearningTrack.objects.filter(cover=media).exists() or Course.objects.filter(cover=media).exists():
             raise ValidationError({'detail': 'Файл используется'})
         media.file.delete(save=False)
         media.delete()
