@@ -49,8 +49,8 @@ class PlatformFlowTests(TestCase):
         self.assertEqual(self.call(client, 'post', path, {'email': 'student@example.test', 'password': 'NewStrongPass456!'}).status_code, 200)
 
     def test_draft_access_and_atomic_block_validation(self):
-        path = f'/api/v1/lessons/{self.lesson.id}/blocks/'
-        self.assertEqual(self.student_client.get(f'/api/v1/lessons/{self.lesson.id}/').status_code, 403)
+        path = f'/api/v1/lessons/{self.lesson.short_id}/blocks/'
+        self.assertEqual(self.student_client.get(f'/api/v1/lessons/{self.lesson.short_id}/').status_code, 403)
         self.assertEqual(self.student_client.get(path).status_code, 403)
         good = [{'type': 'TEXT', 'position': 0, 'content': '# Hello', 'media': None, 'config': {}},
                 {'type': 'TEXT', 'position': 1, 'content': 'World', 'media': None, 'config': {}}]
@@ -62,12 +62,12 @@ class PlatformFlowTests(TestCase):
         self.assertEqual(self.call(self.admin_client, 'put', path, bad).status_code, 400)
         self.assertEqual(self.lesson.blocks.count(), 2)
         self.assertEqual(self.call(self.student_client, 'put', path, good).status_code, 403)
-        self.call(self.admin_client, 'patch', f'/api/v1/lessons/{self.lesson.id}/', {'status': 'PUBLISHED'})
+        self.call(self.admin_client, 'patch', f'/api/v1/lessons/{self.lesson.short_id}/', {'status': 'PUBLISHED'})
         self.assertEqual(self.student_client.get(path).status_code, 200)
 
     def test_test_secrecy_limits_and_versioned_results(self):
         self.lesson.status = 'PUBLISHED'; self.lesson.save()
-        path = f'/api/v1/lessons/{self.lesson.id}/test/'
+        path = f'/api/v1/lessons/{self.lesson.short_id}/test/'
         payload = {'title': 'Quiz', 'passing_percent': 70, 'max_attempts': 1, 'is_published': True,
             'questions': [{'text': 'Two plus two?', 'position': 0, 'points': 2, 'options': [
                 {'text': 'Four', 'position': 0, 'is_correct': True}, {'text': 'Five', 'position': 1, 'is_correct': False}]}]}
@@ -79,7 +79,7 @@ class PlatformFlowTests(TestCase):
         self.assertNotIn('is_correct', str(questions_response.json()))
         question = student_test['questions'][0]
         answer = [{'question': question['id'], 'option': question['options'][0]['id']}]
-        attempt_path = f'/api/v1/lessons/{self.lesson.id}/attempts/'
+        attempt_path = f'/api/v1/lessons/{self.lesson.short_id}/attempts/'
         result = self.call(self.student_client, 'post', attempt_path, {'answers': answer})
         self.assertEqual(result.status_code, 201)
         self.assertTrue(result.json()['passed'])
@@ -89,7 +89,7 @@ class PlatformFlowTests(TestCase):
         attempt = TestAttempt.objects.get()
         self.assertEqual(attempt.test_version, 1)
         self.assertEqual(attempt.snapshot[0]['correct'], 'Four')
-        self.assertEqual(self.call(self.admin_client, 'delete', f'/api/v1/lessons/{self.lesson.id}/').status_code, 400)
+        self.assertEqual(self.call(self.admin_client, 'delete', f'/api/v1/lessons/{self.lesson.short_id}/').status_code, 400)
         self.assertTrue(Lesson.objects.filter(pk=self.lesson.pk).exists())
 
     def test_image_upload_validation(self):
