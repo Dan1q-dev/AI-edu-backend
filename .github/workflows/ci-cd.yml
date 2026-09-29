@@ -1,0 +1,132 @@
+name: backend-ci-cd
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: aiedu
+          POSTGRES_USER: aiedu
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aiedu -d aiedu"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DEBUG: "true"
+      SECRET_KEY: ci-only-not-a-production-secret-key
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      DATABASE_NAME: aiedu
+      DATABASE_USER: aiedu
+      DATABASE_PASSWORD: ci-only-password
+      DATABASE_HOST: 127.0.0.1
+      DATABASE_PORT: "5432"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check Django configuration
+        run: python manage.py check
+      - name: Check migration files
+        run: python manage.py makemigrations --check --dry-run
+      - name: Run tests
+        run: python manage.py test
+      - name: Validate OpenAPI schema
+        run: python manage.py spectacular --validate --file /tmp/openapi.yml
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ github.sha }}
+            ${{ steps.image.outputs.name }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    if: github.event_name == 'push'
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+      - name: Deploy backend to server
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          BACKEND_IMAGE: ${{ needs.publish.outputs.image }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          eval "$(ssh-agent -s)"
+          trap 'ssh-agent -k' EXIT
+          printf '%s\n' "$DEPLOY_SSH_KEY" | ssh-add -
+          scp -o BatchMode=yes docker-compose.yml docker-compose.prod.yml "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+          {
+            printf 'cd %q\n' "$DEPLOY_PATH"
+            printf 'export BACKEND_IMAGE=%q\n' "$BACKEND_IMAGE"
+            printf 'export IMAGE_TAG=%q\n' "$IMAGE_TAG"
+            printf 'export GHCR_USERNAME=%q\n' "$GHCR_USERNAME"
+            printf 'export GHCR_PULL_TOKEN=%q\n' "$GHCR_PULL_TOKEN"
+            cat <<'REMOTE'
+          set -euo pipefail
+          echo "$GHCR_PULL_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend minio-init
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm backend python manage.py migrate --noinput
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --no-build backend
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml ps backend
+          docker logout ghcr.io
+          REMOTE
+          } | ssh -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s'
