@@ -2,6 +2,7 @@ import secrets
 from django.utils.text import slugify
 from django.db import models
 from django.db.models import PROTECT
+from django.core.exceptions import ValidationError
 
 def generate_short_id():
     # token_urlsafe(8) returns 11 chars; truncate to keep public IDs at 10 chars.
@@ -19,8 +20,13 @@ class LearningTrack(ShortIdModel):
     cover = models.ForeignKey('mediafiles.MediaFile', null=True, blank=True, on_delete=models.SET_NULL)
     is_published = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    is_system = models.BooleanField(default=False, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    def delete(self, *args, **kwargs):
+        if self.is_system:
+            raise ValidationError('Базовую траекторию нельзя удалить')
+        return super().delete(*args, **kwargs)
     def __str__(self): return self.title
 
 class Course(ShortIdModel):

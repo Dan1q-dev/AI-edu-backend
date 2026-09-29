@@ -42,6 +42,10 @@ class TrackList(AdminWriteMixin, generics.ListCreateAPIView):
 class TrackDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = TrackSerializer
     lookup_field = 'short_id'
+    def perform_destroy(self, instance):
+        if instance.is_system:
+            raise ValidationError({'detail': 'Базовую траекторию нельзя удалить'})
+        super().perform_destroy(instance)
     def get_queryset(self):
         q = LearningTrack.objects.all()
         if is_admin(self.request.user):

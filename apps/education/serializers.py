@@ -4,8 +4,8 @@ from .models import LearningTrack, Course, Module, Lesson
 class TrackSerializer(serializers.ModelSerializer):
     class Meta:
         model = LearningTrack
-        fields = ['id', 'short_id', 'title', 'description', 'cover', 'is_published', 'is_active', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'short_id', 'created_at', 'updated_at']
+        fields = ['id', 'short_id', 'title', 'description', 'cover', 'is_published', 'is_active', 'is_system', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'short_id', 'is_system', 'created_at', 'updated_at']
 
 class CourseSerializer(serializers.ModelSerializer):
     slug = serializers.SlugField(required=False, allow_blank=True, allow_unicode=True)
