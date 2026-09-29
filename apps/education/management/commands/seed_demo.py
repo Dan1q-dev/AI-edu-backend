@@ -8,7 +8,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         tracks = [
             ('IT-специалисты', 'Основы технологий и искусственного интеллекта'),
-            ('Гуманитарные направления', 'Технологии в гуманитарных исследованиях'),
+            ('Гуманитарные науки', 'Технологии в гуманитарных исследованиях'),
         ]
         for title, description in tracks:
             track, _ = LearningTrack.objects.get_or_create(title=title, defaults={'description': description, 'is_published': True, 'is_active': True})

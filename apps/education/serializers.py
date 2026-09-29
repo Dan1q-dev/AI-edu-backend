@@ -16,7 +16,7 @@ class CourseSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         track = attrs.get('learning_track', getattr(self.instance, 'learning_track', None))
         if track is None:
-            raise serializers.ValidationError({'learning_track': 'Выберите направление обучения'})
+            raise serializers.ValidationError({'learning_track': 'Выберите траекторию обучения'})
         slug = attrs.get('slug')
         if slug:
             matches = Course.objects.filter(slug=slug)
