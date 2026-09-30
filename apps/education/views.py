@@ -1,4 +1,6 @@
 from django.shortcuts import get_object_or_404
+from django.db.models import Q
+from django.http import Http404
 from rest_framework import generics
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import ValidationError
@@ -75,6 +77,15 @@ class CourseDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
             return q
         return q.filter(is_published=True, learning_track_id=self.request.user.learning_track_id,
                         learning_track__is_published=True, learning_track__is_active=True)
+
+    def get_object(self):
+        queryset = self.filter_queryset(self.get_queryset())
+        val = self.kwargs.get(self.lookup_url_kwarg or self.lookup_field)
+        obj = queryset.filter(Q(short_id=val) | Q(slug=val)).first()
+        if not obj:
+            raise Http404("Курс не найден")
+        self.check_object_permissions(self.request, obj)
+        return obj
 
 class ModuleList(AdminWriteMixin, generics.ListCreateAPIView):
     serializer_class = ModuleSerializer
