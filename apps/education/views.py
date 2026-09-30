@@ -2,12 +2,13 @@ from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.db.models import Q, Max
 from django.http import Http404
-from rest_framework import generics
+from rest_framework import generics, serializers
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
 from rest_framework.response import Response
 from common.permissions import is_admin, IsPlatformAdmin
 from .models import LearningTrack, Course, Module, Lesson, LearningItem
+from .progress import course_progress, save_lecture_progress
 from .serializers import TrackSerializer, CourseSerializer, ModuleSerializer, LessonSerializer, LearningItemSerializer
 from .services import delete_content, delete_item
 
@@ -146,6 +147,47 @@ def item_queryset(request):
                     module__course__learning_track_id=request.user.learning_track_id,
                     module__course__learning_track__is_published=True,
                     module__course__learning_track__is_active=True)
+
+
+class LectureProgressInput(serializers.Serializer):
+    progress_percent = serializers.IntegerField(min_value=0, max_value=100)
+
+
+class ItemProgressOutput(serializers.Serializer):
+    progress_percent = serializers.IntegerField(min_value=0, max_value=100)
+    is_completed = serializers.BooleanField()
+
+
+class CourseProgressOutput(serializers.Serializer):
+    percent = serializers.IntegerField(min_value=0, max_value=100)
+    items = serializers.DictField(child=ItemProgressOutput())
+
+
+class CourseProgressView(generics.GenericAPIView):
+    serializer_class = CourseProgressOutput
+    def get(self, request, slug):
+        courses = Course.objects.all() if is_admin(request.user) else Course.objects.filter(
+            is_published=True, learning_track_id=request.user.learning_track_id,
+            learning_track__is_published=True, learning_track__is_active=True)
+        course = courses.filter(Q(short_id=slug) | Q(slug=slug)).first()
+        if not course:
+            raise NotFound()
+        return Response(course_progress(request.user, course))
+
+
+class ItemProgressView(generics.GenericAPIView):
+    serializer_class = LectureProgressInput
+
+    def patch(self, request, short_id):
+        item = item_queryset(request).filter(short_id=short_id).first()
+        if not item:
+            raise NotFound()
+        if item.type != LearningItem.Type.LECTURE:
+            raise ValidationError({'detail': 'Progress can only be submitted for a lecture'})
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        progress = save_lecture_progress(request.user, item, serializer.validated_data['progress_percent'])
+        return Response({'progress_percent': progress.progress_percent, 'is_completed': progress.is_completed})
 
 
 class LearningItemList(AdminWriteMixin, generics.ListCreateAPIView):

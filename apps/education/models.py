@@ -1,4 +1,5 @@
 import secrets
+from django.conf import settings
 from django.utils.text import slugify
 from django.db import models
 from django.db.models import PROTECT
@@ -108,3 +109,16 @@ class LearningItem(ShortIdModel):
         constraints = [models.UniqueConstraint(fields=['module', 'position'], name='unique_learning_item_position')]
 
     def __str__(self): return self.title
+
+
+class UserLearningItemProgress(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='learning_progress')
+    learning_item = models.ForeignKey(LearningItem, on_delete=models.CASCADE, related_name='user_progress')
+    progress_percent = models.PositiveSmallIntegerField(default=0)
+    is_completed = models.BooleanField(default=False)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'learning_item'], name='unique_user_learning_item_progress')]

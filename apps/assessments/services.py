@@ -114,6 +114,10 @@ def submit_attempt(test_id, user, answers):
         earned += q.points if choice.is_correct else 0
         snapshot.append({'question': q.text, 'selected': choice.text, 'correct': next(o.text for o in options if o.is_correct), 'points': q.points})
     percent = round(100 * earned / total, 2) if total else 0
-    return TestAttempt.objects.create(test=test, user=user, test_version=test.version,
+    attempt = TestAttempt.objects.create(test=test, user=user, test_version=test.version,
         answers=answers, snapshot=snapshot, earned_points=earned, total_points=total,
         percent=percent, passed=percent >= test.passing_percent)
+    if attempt.passed and hasattr(test, 'learning_item'):
+        from apps.education.progress import complete_item_from_server
+        complete_item_from_server(user, test.learning_item)
+    return attempt
