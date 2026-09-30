@@ -20,8 +20,11 @@ class MediaUploadView(GenericAPIView):
     parser_classes = [MultiPartParser]
     def post(self, request):
         upload = request.FILES.get('file')
-        if not upload or upload.size > settings.MAX_IMAGE_BYTES or upload.size == 0:
-            raise ValidationError({'file': 'Размер файла недопустим'})
+        if not upload or upload.size == 0:
+            raise ValidationError({'file': 'Файл не передан или пуст'})
+        if upload.size > settings.MAX_IMAGE_BYTES:
+            limit_mb = settings.MAX_IMAGE_BYTES // (1024 * 1024)
+            raise ValidationError({'file': f'Размер файла не должен превышать {limit_mb} МБ'})
         raw = upload.read()
         try:
             image = Image.open(BytesIO(raw))
@@ -47,15 +50,24 @@ class MediaView(GenericAPIView):
             raise NotFound()
         from apps.lessons.models import LessonBlock
         from apps.education.models import LearningTrack, Course
-        public_block = LessonBlock.objects.filter(media=media, lesson__status='PUBLISHED',
-            lesson__module__is_published=True, lesson__module__course__is_published=True,
-            lesson__module__course__learning_track_id=request.user.learning_track_id,
-            lesson__module__course__learning_track__is_published=True,
-            lesson__module__course__learning_track__is_active=True).exists()
-        public_cover = LearningTrack.objects.filter(cover=media, is_published=True, is_active=True,
-            pk=request.user.learning_track_id).exists() or Course.objects.filter(cover=media, is_published=True,
-            learning_track_id=request.user.learning_track_id, learning_track__is_published=True,
-            learning_track__is_active=True).exists()
+        user_track_id = getattr(request.user, 'learning_track_id', None)
+        public_block = (
+            LessonBlock.objects.filter(
+                media=media,
+                lesson__status='PUBLISHED',
+                lesson__module__is_published=True,
+                lesson__module__course__is_published=True,
+                lesson__module__course__learning_track_id=user_track_id,
+                lesson__module__course__learning_track__is_published=True,
+                lesson__module__course__learning_track__is_active=True,
+            ).exists()
+            if user_track_id
+            else False
+        )
+        public_cover = (
+            LearningTrack.objects.filter(cover=media, is_published=True, is_active=True).exists()
+            or Course.objects.filter(cover=media, is_published=True, learning_track__is_published=True, learning_track__is_active=True).exists()
+        )
         if not (is_admin(request.user) or public_block or public_cover):
             raise PermissionDenied()
         return FileResponse(media.file.open('rb'), content_type=media.content_type)
