@@ -44,12 +44,26 @@ def validate_test(data):
 
 @transaction.atomic
 def save_test(lesson, data):
-    title, passing, limit, questions = validate_test(data)
     test = Test.objects.select_for_update().filter(lesson=lesson).first()
-    if test:
+    return _save_test(test or Test(lesson=lesson), data)
+
+
+@transaction.atomic
+def save_item_test(item, data):
+    if item.type != 'TEST' or not item.test_id:
+        raise ValidationError({'type': 'Это не тест'})
+    test = _save_test(Test.objects.select_for_update().get(pk=item.test_id), data)
+    item.title = test.title
+    item.description = test.description
+    item.status = 'PUBLISHED' if test.is_published else 'DRAFT'
+    item.save(update_fields=['title', 'description', 'status', 'updated_at'])
+    return test
+
+
+def _save_test(test, data):
+    title, passing, limit, questions = validate_test(data)
+    if test.pk:
         test.version += 1
-    else:
-        test = Test(lesson=lesson)
     test.title = title
     test.description = str(data.get('description', ''))
     test.passing_percent = passing
@@ -61,13 +75,19 @@ def save_test(lesson, data):
         question = Question.objects.create(test=test, text=q['text'], position=q['position'], points=int(q.get('points', 1)))
         Option.objects.bulk_create([Option(question=question, text=o['text'], position=o['position'],
             is_correct=o['is_correct']) for o in q['options']])
+    if hasattr(test, 'learning_item'):
+        item = test.learning_item
+        item.title = test.title
+        item.description = test.description
+        item.status = 'PUBLISHED' if test.is_published else 'DRAFT'
+        item.save(update_fields=['title', 'description', 'status', 'updated_at'])
     return test
 
 @transaction.atomic
 def submit_attempt(test_id, user, answers):
     test = Test.objects.select_for_update(of=('self',)).get(pk=test_id)
-    from apps.education.access import can_access_lesson
-    if not test.is_published or not can_access_lesson(user, test.lesson):
+    from apps.education.access import can_access_test
+    if not test.is_published or not can_access_test(user, test):
         raise PermissionDenied()
     if test.max_attempts is not None and TestAttempt.objects.filter(test=test, user=user).count() >= test.max_attempts:
         raise ValidationError({'attempts': 'Лимит попыток исчерпан'})

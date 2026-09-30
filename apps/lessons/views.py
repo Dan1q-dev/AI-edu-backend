@@ -6,11 +6,12 @@ from common.permissions import is_admin, IsPlatformAdmin
 from apps.education.access import can_access_lesson
 from apps.education.models import Lesson
 from .models import LessonBlock
-from .serializers import BlockSerializer
+from .serializers import BlockSerializer, LessonDraftSerializer
 
 
 class LessonDraftView(GenericAPIView):
     """Private editable snapshot; publishing explicitly copies it to live rows."""
+    serializer_class = LessonDraftSerializer
 
     def get_lesson(self, request, short_id):
         if not is_admin(request.user):
@@ -85,6 +86,12 @@ class LessonDraftView(GenericAPIView):
             ])
         lesson.status = Lesson.Status.PUBLISHED
         lesson.save(update_fields=['title', 'description', 'status', 'updated_at'])
+        if hasattr(lesson, 'learning_item'):
+            item = lesson.learning_item
+            item.title = lesson.title
+            item.description = lesson.description
+            item.status = 'PUBLISHED'
+            item.save(update_fields=['title', 'description', 'status', 'updated_at'])
         return Response({'status': lesson.status, 'title': lesson.title})
 
 class BlocksView(GenericAPIView):

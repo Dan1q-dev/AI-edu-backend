@@ -1,7 +1,7 @@
 from django.db import models
 
 class PracticeDefinition(models.Model):
-    lesson = models.ForeignKey('education.Lesson', on_delete=models.PROTECT, related_name='practices')
+    lesson = models.ForeignKey('education.Lesson', null=True, blank=True, on_delete=models.PROTECT, related_name='practices')
     kind = models.CharField(max_length=100)
     version = models.PositiveIntegerField(default=1)
     config = models.JSONField(default=dict)

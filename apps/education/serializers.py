@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import LearningTrack, Course, Module, Lesson
+from .models import LearningTrack, Course, Module, Lesson, LearningItem
 
 class TrackSerializer(serializers.ModelSerializer):
     class Meta:
@@ -37,3 +37,13 @@ class LessonSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = ['id', 'short_id', 'module', 'title', 'description', 'position', 'status', 'created_at', 'updated_at']
         read_only_fields = ['id', 'short_id', 'created_at', 'updated_at']
+
+
+class LearningItemSerializer(serializers.ModelSerializer):
+    lesson_short_id = serializers.CharField(source='lesson.short_id', read_only=True, allow_null=True)
+    class Meta:
+        model = LearningItem
+        fields = ['id', 'short_id', 'module', 'type', 'title', 'description', 'position', 'status',
+                  'lesson', 'lesson_short_id', 'test', 'practice', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'short_id', 'lesson', 'lesson_short_id', 'test', 'practice', 'created_at', 'updated_at']
+        validators = []  # Position is assigned and validated under a module lock in the view.

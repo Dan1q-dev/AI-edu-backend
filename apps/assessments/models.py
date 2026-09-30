@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import models
 
 class Test(models.Model):
-    lesson = models.OneToOneField('education.Lesson', on_delete=models.PROTECT, related_name='test')
+    lesson = models.OneToOneField('education.Lesson', null=True, blank=True, on_delete=models.PROTECT, related_name='test')
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     passing_percent = models.PositiveSmallIntegerField(default=70)

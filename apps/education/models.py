@@ -79,3 +79,32 @@ class Lesson(ShortIdModel):
     class Meta:
         ordering = ['position', 'id']
     def __str__(self): return self.title
+
+
+class LearningItem(ShortIdModel):
+    class Type(models.TextChoices):
+        LECTURE = 'LECTURE', 'Лекция'
+        TEST = 'TEST', 'Тест'
+        PRACTICE = 'PRACTICE', 'Практика'
+
+    class Status(models.TextChoices):
+        DRAFT = 'DRAFT', 'Черновик'
+        PUBLISHED = 'PUBLISHED', 'Опубликован'
+
+    module = models.ForeignKey(Module, on_delete=PROTECT, related_name='items')
+    type = models.CharField(max_length=10, choices=Type.choices)
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    position = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
+    lesson = models.OneToOneField(Lesson, null=True, blank=True, on_delete=PROTECT, related_name='learning_item')
+    test = models.OneToOneField('assessments.Test', null=True, blank=True, on_delete=PROTECT, related_name='learning_item')
+    practice = models.OneToOneField('activities.PracticeDefinition', null=True, blank=True, on_delete=PROTECT, related_name='learning_item')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['position', 'id']
+        constraints = [models.UniqueConstraint(fields=['module', 'position'], name='unique_learning_item_position')]
+
+    def __str__(self): return self.title

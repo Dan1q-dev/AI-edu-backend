@@ -1,13 +1,15 @@
 from django.shortcuts import get_object_or_404
-from django.db.models import Q
+from django.db import transaction
+from django.db.models import Q, Max
 from django.http import Http404
 from rest_framework import generics
 from rest_framework.permissions import AllowAny
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
+from rest_framework.response import Response
 from common.permissions import is_admin, IsPlatformAdmin
-from .models import LearningTrack, Course, Module, Lesson
-from .serializers import TrackSerializer, CourseSerializer, ModuleSerializer, LessonSerializer
-from .services import delete_content
+from .models import LearningTrack, Course, Module, Lesson, LearningItem
+from .serializers import TrackSerializer, CourseSerializer, ModuleSerializer, LessonSerializer, LearningItemSerializer
+from .services import delete_content, delete_item
 
 def integer_query(request, name):
     value = request.query_params.get(name)
@@ -134,3 +136,96 @@ class LessonDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
         return q.filter(status='PUBLISHED', module__is_published=True, module__course__is_published=True,
                         module__course__learning_track_id=self.request.user.learning_track_id,
                         module__course__learning_track__is_published=True, module__course__learning_track__is_active=True)
+
+
+def item_queryset(request):
+    q = LearningItem.objects.select_related('module__course__learning_track', 'lesson', 'test', 'practice')
+    if is_admin(request.user):
+        return q
+    return q.filter(status='PUBLISHED', module__is_published=True, module__course__is_published=True,
+                    module__course__learning_track_id=request.user.learning_track_id,
+                    module__course__learning_track__is_published=True,
+                    module__course__learning_track__is_active=True)
+
+
+class LearningItemList(AdminWriteMixin, generics.ListCreateAPIView):
+    serializer_class = LearningItemSerializer
+
+    def get_queryset(self):
+        q = item_queryset(self.request)
+        module_id = integer_query(self.request, 'module')
+        return q.filter(module_id=module_id) if module_id else q
+
+    @transaction.atomic
+    def perform_create(self, serializer):
+        module = serializer.validated_data['module']
+        Module.objects.select_for_update().get(pk=module.pk)
+        last_position = LearningItem.objects.filter(module=module).aggregate(Max('position'))['position__max']
+        position = 0 if last_position is None else last_position + 1
+        kind = serializer.validated_data['type']
+        title = serializer.validated_data['title']
+        description = serializer.validated_data.get('description', '')
+        if kind == LearningItem.Type.LECTURE:
+            content = Lesson.objects.create(module=module, title=title, description=description, position=position)
+            serializer.save(position=position, lesson=content)
+        elif kind == LearningItem.Type.TEST:
+            from apps.assessments.models import Test
+            content = Test.objects.create(title=title, description=description)
+            serializer.save(position=position, test=content)
+        else:
+            from apps.activities.models import PracticeDefinition
+            content = PracticeDefinition.objects.create(kind='PLACEHOLDER', config={})
+            serializer.save(position=position, practice=content)
+
+
+class LearningItemDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = LearningItemSerializer
+    lookup_field = 'short_id'
+
+    def get_queryset(self):
+        return item_queryset(self.request)
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        Module.objects.select_for_update().get(pk=serializer.instance.module_id)
+        item = LearningItem.objects.select_for_update().get(pk=serializer.instance.pk)
+        data = serializer.validated_data
+        if 'module' in data and data['module'].pk != item.module_id:
+            raise ValidationError({'module': 'Перенос между модулями пока не поддерживается'})
+        if 'type' in data and data['type'] != item.type:
+            raise ValidationError({'type': 'Тип элемента нельзя изменить'})
+        if 'status' in data and data['status'] == 'PUBLISHED':
+            if item.type == 'LECTURE' and item.lesson.draft_data is not None:
+                raise ValidationError({'status': 'Опубликуйте черновик лекции через /draft/'})
+            if item.type == 'TEST' and (not item.test or not item.test.is_published):
+                raise ValidationError({'status': 'Сначала опубликуйте тест с вопросами'})
+        if 'position' in self.request.data:
+            target = self.request.data['position']
+            if isinstance(target, bool) or not isinstance(target, int):
+                raise ValidationError({'position': 'Ожидается целое число'})
+            siblings = list(LearningItem.objects.filter(module=item.module).order_by('position', 'id'))
+            if target < 0 or target >= len(siblings):
+                raise ValidationError({'position': 'Позиция вне модуля'})
+            siblings.remove(item)
+            siblings.insert(target, item)
+            offset = len(siblings) + max(member.position for member in siblings) + 1
+            for index, member in enumerate(siblings):
+                LearningItem.objects.filter(pk=member.pk).update(position=offset + index)
+            for index, member in enumerate(siblings):
+                LearningItem.objects.filter(pk=member.pk).update(position=index)
+                if member.lesson_id:
+                    Lesson.objects.filter(pk=member.lesson_id).update(position=index)
+            item.position = target
+        updated = serializer.save(position=item.position)
+        if updated.type == 'LECTURE':
+            Lesson.objects.filter(pk=updated.lesson_id).update(
+                module_id=updated.module_id, position=updated.position,
+                status=updated.status, title=updated.title, description=updated.description)
+        elif updated.type == 'TEST':
+            from apps.assessments.models import Test
+            Test.objects.filter(pk=updated.test_id).update(title=updated.title, description=updated.description,
+                                                             is_published=updated.status == 'PUBLISHED')
+
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        delete_item(instance)

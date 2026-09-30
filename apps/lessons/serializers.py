@@ -18,3 +18,9 @@ class BlockSerializer(serializers.ModelSerializer):
         if len(data.get('content', '')) > 50000:
             raise serializers.ValidationError('Текст слишком длинный')
         return data
+
+
+class LessonDraftSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=200)
+    description = serializers.CharField(allow_blank=True, required=False)
+    blocks = BlockSerializer(many=True)
