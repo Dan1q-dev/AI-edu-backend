@@ -196,7 +196,12 @@ class LearningItemList(AdminWriteMixin, generics.ListCreateAPIView):
     def get_queryset(self):
         q = item_queryset(self.request)
         module_id = integer_query(self.request, 'module')
-        return q.filter(module_id=module_id) if module_id else q
+        course_id = integer_query(self.request, 'course')
+        if module_id:
+            q = q.filter(module_id=module_id)
+        if course_id:
+            q = q.filter(module__course_id=course_id)
+        return q
 
     @transaction.atomic
     def perform_create(self, serializer):

@@ -41,9 +41,16 @@ class LessonSerializer(serializers.ModelSerializer):
 
 class LearningItemSerializer(serializers.ModelSerializer):
     lesson_short_id = serializers.CharField(source='lesson.short_id', read_only=True, allow_null=True)
+    module_short_id = serializers.CharField(source='module.short_id', read_only=True)
+    module_title = serializers.CharField(source='module.title', read_only=True)
+    module_position = serializers.IntegerField(source='module.position', read_only=True)
+    course_id = serializers.IntegerField(source='module.course.id', read_only=True)
+    course_short_id = serializers.CharField(source='module.course.short_id', read_only=True)
+    course_title = serializers.CharField(source='module.course.title', read_only=True)
     class Meta:
         model = LearningItem
         fields = ['id', 'short_id', 'module', 'type', 'title', 'description', 'position', 'status',
-                  'lesson', 'lesson_short_id', 'test', 'practice', 'created_at', 'updated_at']
+                  'module_short_id', 'module_title', 'module_position', 'course_id', 'course_short_id',
+                  'course_title', 'lesson', 'lesson_short_id', 'test', 'practice', 'created_at', 'updated_at']
         read_only_fields = ['id', 'short_id', 'lesson', 'lesson_short_id', 'test', 'practice', 'created_at', 'updated_at']
         validators = []  # Position is assigned and validated under a module lock in the view.
