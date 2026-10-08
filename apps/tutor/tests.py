@@ -58,6 +58,43 @@ class TutorTests(TestCase):
         self.assertIsNone(req.get_header('Cookie'))
 
     @patch('apps.tutor.views.urlopen')
+    @override_settings(DEBUG=True, AI_AVATAR_SERVICE_URL='http://127.0.0.1:5185')
+    def test_local_avatar_keeps_authenticated_server_context(self, open_mock):
+        upstream = FakeStream(b'event: avatar\ndata: {"kind":"start"}\n\nevent: done\ndata: {}\n\n')
+        open_mock.return_value = upstream
+        response = self.post(avatar=True, lesson_content='spoofed')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'avatar', b''.join(response.streaming_content))
+        req = open_mock.call_args.args[0]
+        self.assertEqual(req.full_url, 'http://127.0.0.1:5185/api/avatar')
+        self.assertIn(self.block.content, json.loads(req.data)['lesson_content'])
+        self.assertNotIn('spoofed', json.loads(req.data)['lesson_content'])
+        self.client.logout()
+        self.assertEqual(self.post(avatar=True).status_code, 403)
+
+    @patch('apps.tutor.views.urlopen')
+    def test_avatar_is_disabled_by_default(self, open_mock):
+        with override_settings(AI_AVATAR_SERVICE_URL=''):
+            self.assertEqual(self.post(avatar=True).status_code, 503)
+        with override_settings(AI_AVATAR_SERVICE_URL='https://external.example'):
+            self.assertEqual(self.post(avatar=True).status_code, 503)
+        with override_settings(DEBUG=False, AI_AVATAR_SERVICE_URL='http://127.0.0.1:5185'):
+            self.assertEqual(self.post(avatar=True).status_code, 503)
+        open_mock.assert_not_called()
+
+    @patch('apps.tutor.views.urlopen')
+    @override_settings(DEBUG=True, AI_AVATAR_SERVICE_URL='http://127.0.0.1:5185')
+    def test_replay_is_scoped_to_current_lecture(self, open_mock):
+        open_mock.return_value = FakeStream(b'event: done\ndata: {}\n\n')
+        response = self.post(avatar=True, avatar_speech=True)
+        self.assertEqual(response.status_code, 200)
+        b''.join(response.streaming_content)
+        payload = json.loads(open_mock.call_args.args[0].data)
+        self.assertEqual(payload['speech_text'], self.payload['messages'][-1]['content'])
+        self.assertIn(self.block.content, payload['lesson_content'])
+        self.assertEqual(self.post(avatar_speech=True).status_code, 400)
+
+    @patch('apps.tutor.views.urlopen')
     def test_legacy_url_is_supported(self, open_mock):
         open_mock.return_value = FakeStream(b'event: done\ndata: {}\n\n')
         response = self.post(context_type='lesson', context_id=self.lesson.short_id)

@@ -72,8 +72,27 @@ jobs:
           OPENAI_API_KEY: build-only-placeholder
           AI_DB_PROVIDER: sqlite
 
+  verify-avatar:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/avatar-local
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: services/avatar-local/package-lock.json
+      - name: Install local avatar dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Check synthetic playback and local-only configuration
+        run: npm test
+      - name: Validate worker Python syntax without launching NVIDIA
+        run: python -m py_compile audio2face-stream.py
+
   publish:
-    needs: [verify, verify-ai]
+    needs: [verify, verify-ai, verify-avatar]
     runs-on: ubuntu-latest
     permissions:
       contents: read

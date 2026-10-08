@@ -81,6 +81,7 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 MAX_IMAGE_BYTES = int(os.getenv('MAX_IMAGE_BYTES', str(10 * 1024 * 1024)))
 AI_SERVICE_URL = os.getenv('AI_SERVICE_URL', '').rstrip('/')
 AI_SERVICE_API_KEY = os.getenv('AI_SERVICE_API_KEY', '')
+AI_AVATAR_SERVICE_URL = os.getenv('AI_AVATAR_SERVICE_URL', '').rstrip('/') if DEBUG else ''
 AI_SERVICE_TIMEOUT = int(os.getenv('AI_SERVICE_TIMEOUT', '90'))
 AI_TUTOR_RATE = os.getenv('AI_TUTOR_RATE', '20/min')
 if os.getenv('S3_ENDPOINT_URL'):

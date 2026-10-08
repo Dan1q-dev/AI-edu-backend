@@ -37,6 +37,8 @@ class MessageInput(serializers.Serializer):
 
 
 class ChatInput(serializers.Serializer):
+    avatar = serializers.BooleanField(default=False)
+    avatar_speech = serializers.BooleanField(default=False)
     context_type = serializers.ChoiceField(choices=['lesson', 'item'])
     context_id = serializers.CharField(max_length=10)
     session_id = serializers.UUIDField()
@@ -50,20 +52,30 @@ class ChatInput(serializers.Serializer):
         return messages
 
 
-def upstream_request(path, payload=None, *, body=None, content_type='application/json'):
+def upstream_request(path, payload=None, *, body=None, content_type='application/json', avatar=False):
     if not settings.AI_SERVICE_URL or (not settings.DEBUG and not settings.AI_SERVICE_API_KEY):
         raise TutorUnavailable()
     headers = {'Content-Type': content_type}
     if settings.AI_SERVICE_API_KEY:
         headers['X-API-Key'] = settings.AI_SERVICE_API_KEY
-    req = Request(f'{settings.AI_SERVICE_URL}/api/{path}', data=body if body is not None else json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+    base = settings.AI_SERVICE_URL
+    if avatar:
+        base = settings.AI_AVATAR_SERVICE_URL
+        if not settings.DEBUG or not base or not settings.AI_SERVICE_API_KEY:
+            raise TutorUnavailable('Локальный аватар не включён.')
+        from urllib.parse import urlsplit
+        parsed = urlsplit(base)
+        if parsed.scheme != 'http' or parsed.hostname not in ('localhost', '127.0.0.1'):
+            raise TutorUnavailable('Аватар доступен только в локальном тесте.')
+    req = Request(f'{base}/api/{path}', data=body if body is not None else json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
     try:
         return urlopen(req, timeout=settings.AI_SERVICE_TIMEOUT)
     except HTTPError as error:
         status = error.code
         error.close()
         logger.warning('AI service rejected tutor request with HTTP %s', status)
-        exc = TutorUnavailable('Лимит запросов к тьютору исчерпан. Попробуйте позже.' if status == 429 else None)
+        detail = 'Кевин завершает предыдущий ответ. Повторите запрос через секунду.' if avatar else 'Лимит запросов к тьютору исчерпан. Попробуйте позже.'
+        exc = TutorUnavailable(detail if status == 429 else None)
         if status == 429:
             exc.status_code = 429
         raise exc from None
@@ -92,7 +104,11 @@ class TutorChatView(GenericAPIView):
             'locateInLecture': True,
             'client_metadata': {'platform': 'ai-edu', 'user_id': str(request.user.pk)},
         }
-        upstream = upstream_request('chat', payload)
+        if data['avatar_speech']:
+            if not data['avatar']:
+                raise serializers.ValidationError('Повторная озвучка требует локального аватара.')
+            payload['speech_text'] = data['messages'][-1]['content']
+        upstream = upstream_request('avatar' if data['avatar'] else 'chat', payload, avatar=data['avatar'])
         if 'text/event-stream' not in upstream.headers.get('Content-Type', ''):
             upstream.close()
             raise TutorUnavailable()
