@@ -56,7 +56,7 @@ class AttemptView(GenericAPIView):
         if not test: raise NotFound()
         if not is_admin(request.user) and (not test.is_published or not can_access_test(request.user, test)):
             raise NotFound()
-        q = TestAttempt.objects.filter(test=test)
+        q = TestAttempt.objects.select_related('test__learning_item__module__course', 'test__lesson__module__course').filter(test=test)
         if not is_admin(request.user): q = q.filter(user=request.user)
         paginator = PageNumberPagination()
         page = paginator.paginate_queryset(q, request)
@@ -72,7 +72,9 @@ class AttemptView(GenericAPIView):
 class AllAttemptsView(GenericAPIView):
     serializer_class = AttemptSerializer
     def get(self, request):
-        q = TestAttempt.objects.all() if is_admin(request.user) else TestAttempt.objects.filter(user=request.user)
+        q = TestAttempt.objects.select_related('test__learning_item__module__course', 'test__lesson__module__course')
+        if not is_admin(request.user):
+            q = q.filter(user=request.user)
         paginator = PageNumberPagination()
         page = paginator.paginate_queryset(q, request)
         return paginator.get_paginated_response(AttemptSerializer(page, many=True).data)
@@ -116,7 +118,7 @@ class ItemAttemptView(GenericAPIView):
 
     def get(self, request, short_id):
         test = self.get_test(request, short_id)
-        q = TestAttempt.objects.filter(test=test)
+        q = TestAttempt.objects.select_related('test__learning_item__module__course', 'test__lesson__module__course').filter(test=test)
         if not is_admin(request.user):
             q = q.filter(user=request.user)
         paginator = PageNumberPagination()

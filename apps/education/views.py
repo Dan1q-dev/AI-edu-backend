@@ -113,7 +113,7 @@ class ModuleDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
 class LessonList(AdminWriteMixin, generics.ListCreateAPIView):
     serializer_class = LessonSerializer
     def get_queryset(self):
-        q = Lesson.objects.select_related('module__course__learning_track').all()
+        q = Lesson.objects.select_related('module__course__learning_track', 'learning_item').all()
         module_id = integer_query(self.request, 'module')
         if module_id:
             q = q.filter(module_id=module_id)
@@ -131,7 +131,7 @@ class LessonDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
             raise PermissionDenied('Сначала завершите предыдущий модуль')
         return obj
     def get_queryset(self):
-        q = Lesson.objects.select_related('module__course__learning_track').all()
+        q = Lesson.objects.select_related('module__course__learning_track', 'learning_item').all()
         if is_admin(self.request.user):
             return q
         return q.filter(status='PUBLISHED', module__is_published=True, module__course__in=accessible_courses(self.request.user))
@@ -151,12 +151,52 @@ class LectureProgressInput(serializers.Serializer):
 class ItemProgressOutput(serializers.Serializer):
     progress_percent = serializers.IntegerField(min_value=0, max_value=100)
     is_completed = serializers.BooleanField()
+    is_started = serializers.BooleanField(required=False)
 
 
-class CourseProgressOutput(serializers.Serializer):
-    percent = serializers.IntegerField(min_value=0, max_value=100)
+class ResumeLearningItemOutput(serializers.Serializer):
+    short_id = serializers.CharField()
+    title = serializers.CharField()
+    type = serializers.ChoiceField(choices=LearningItem.Type.choices)
+
+
+class LearningCourseSummaryOutput(serializers.Serializer):
+    id = serializers.IntegerField()
+    short_id = serializers.CharField()
+    slug = serializers.CharField()
+    title = serializers.CharField()
+    description = serializers.CharField()
+    cover = serializers.IntegerField(allow_null=True)
+    learning_track_title = serializers.CharField(allow_null=True)
+    percent = serializers.IntegerField()
+    completed_items = serializers.IntegerField()
+    total_items = serializers.IntegerField()
+    is_started = serializers.BooleanField()
+    is_completed = serializers.BooleanField()
+    last_activity_at = serializers.DateTimeField(allow_null=True)
+    resume_learning_item = ResumeLearningItemOutput(allow_null=True)
+
+
+class CourseProgressOutput(LearningCourseSummaryOutput):
     items = serializers.DictField(child=ItemProgressOutput())
     modules = serializers.DictField(child=serializers.DictField())
+
+
+class LearningDashboardOutput(serializers.Serializer):
+    resume_course = LearningCourseSummaryOutput(allow_null=True)
+    active_courses = LearningCourseSummaryOutput(many=True)
+    completed_courses = LearningCourseSummaryOutput(many=True)
+    available_courses = LearningCourseSummaryOutput(many=True)
+
+
+class LearningDashboardView(generics.GenericAPIView):
+    serializer_class = LearningDashboardOutput
+
+    def get(self, request):
+        if request.user.role != 'STUDENT':
+            raise PermissionDenied()
+        from .learning import learning_dashboard
+        return Response(learning_dashboard(request.user, accessible_courses(request.user)))
 
 
 class CourseProgressView(generics.GenericAPIView):

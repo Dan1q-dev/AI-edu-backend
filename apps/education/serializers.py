@@ -37,12 +37,13 @@ class ModuleSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'short_id']
 
 class LessonSerializer(serializers.ModelSerializer):
+    learning_item_short_id = serializers.CharField(source='learning_item.short_id', read_only=True, allow_null=True, default=None)
     is_locked = serializers.SerializerMethodField()
     def get_is_locked(self, obj) -> bool:
         return request_module_is_locked(self.context.get('request'), obj.module)
     class Meta:
         model = Lesson
-        fields = ['id', 'short_id', 'module', 'title', 'description', 'position', 'status', 'is_locked', 'created_at', 'updated_at']
+        fields = ['id', 'short_id', 'learning_item_short_id', 'module', 'title', 'description', 'position', 'status', 'is_locked', 'created_at', 'updated_at']
         read_only_fields = ['id', 'short_id', 'created_at', 'updated_at']
 
 

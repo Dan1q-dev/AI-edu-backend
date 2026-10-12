@@ -56,7 +56,9 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'EXCEPTION_HANDLER': 'common.exceptions.handler',
 }
-SPECTACULAR_SETTINGS = {'TITLE': 'AI Edu API', 'VERSION': '1.0.0'}
+SPECTACULAR_SETTINGS = {'TITLE': 'AI Edu API', 'VERSION': '1.0.0',
+                        'ENUM_NAME_OVERRIDES': {'LearningItemTypeEnum': [
+                            ('LECTURE', 'Лекция'), ('TEST', 'Тест'), ('PRACTICE', 'Практика')]}}
 LANGUAGE_CODE = 'ru-ru'
 TIME_ZONE = 'UTC'
 USE_TZ = True

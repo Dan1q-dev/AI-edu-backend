@@ -16,6 +16,7 @@ urlpatterns = [
     path('api/v1/auth/logout/', accounts.LogoutView.as_view()),
     path('api/v1/auth/me/', accounts.ProfileView.as_view()),
     path('api/v1/auth/password/', accounts.PasswordView.as_view()),
+    path('api/v1/me/learning/', education.LearningDashboardView.as_view()),
     path('api/v1/admin/users/', admin_accounts.AdminUserList.as_view()),
     path('api/v1/admin/users/<int:pk>/', admin_accounts.AdminUserDetail.as_view()),
     path('api/v1/admin/users/<int:pk>/learning-progress/', admin_accounts.AdminUserLearningProgress.as_view()),

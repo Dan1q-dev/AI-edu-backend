@@ -16,11 +16,15 @@ def calculate_readiness(theory, practice, errors, competency):
     return round(0.40 * theory + 0.25 * practice - 0.15 * errors + 0.20 * competency, 4)
 
 
-def module_states(user, course):
-    progress = {row.module_id: row for row in UserModuleProgress.objects.filter(user=user, module__course=course)}
+def module_states(user, course, *, modules=None, progress_rows=None):
+    if progress_rows is None:
+        progress_rows = UserModuleProgress.objects.filter(user=user, module__course=course)
+    if modules is None:
+        modules = course.modules.filter(is_published=True).order_by('position', 'id')
+    progress = {row.module_id: row for row in progress_rows}
     states = {}
     previous_completed = True
-    for module in course.modules.filter(is_published=True).order_by('position', 'id'):
+    for module in modules:
         row = progress.get(module.pk)
         completed = bool(row and row.is_completed)
         locked = bool(course.adaptive_learning_enabled and not previous_completed)
