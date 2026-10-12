@@ -8,6 +8,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.activities.models import PracticeDefinition
+from apps.activities.testing import configure_checklist
 from apps.assessments.models import Option, Question, Test, TestAttempt
 from apps.education.models import Course, LearningItem, LearningTrack, Lesson, Module
 from apps.lessons.models import LessonBlock
@@ -46,7 +47,7 @@ class LearningItemFlowTests(TestCase):
         self.assertEqual(self.admin_client.post(draft_path).status_code, 200)
         self.assertEqual(self.student_client.get(f"/api/v1/items/{lecture['short_id']}/").data['title'], 'Published lecture')
         practice = paths[2]
-        self.assertEqual(self.admin_client.patch(f"/api/v1/items/{practice['short_id']}/", {'status': 'PUBLISHED'}, format='json').status_code, 200)
+        configure_checklist(LearningItem.objects.get(pk=practice['id']), ['Done'], self.admin)
         test = paths[3]
         payload = {'title': 'Test', 'is_published': True, 'questions': [{'text': 'One?', 'position': 0, 'points': 1,
             'options': [{'text': 'Yes', 'position': 0, 'is_correct': True}, {'text': 'No', 'position': 1, 'is_correct': False}]}]}

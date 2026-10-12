@@ -58,7 +58,11 @@ REST_FRAMEWORK = {
 }
 SPECTACULAR_SETTINGS = {'TITLE': 'AI Edu API', 'VERSION': '1.0.0',
                         'ENUM_NAME_OVERRIDES': {'LearningItemTypeEnum': [
-                            ('LECTURE', 'Лекция'), ('TEST', 'Тест'), ('PRACTICE', 'Практика')]}}
+                            ('LECTURE', 'Лекция'), ('TEST', 'Тест'), ('PRACTICE', 'Практика')],
+                            'ContentStatusEnum': [('DRAFT', 'Draft'), ('PUBLISHED', 'Published')],
+                            'LearningItemStatusEnum': [('DRAFT', 'Черновик'), ('PUBLISHED', 'Опубликован')],
+                            'PracticeGradingSourceEnum': [('SELF_ASSESSMENT', 'Self Assessment'),
+                                ('AUTO_GRADING', 'Auto Grading'), ('AI_GRADING', 'Ai Grading'), ('TEACHER', 'Teacher')]}}
 LANGUAGE_CODE = 'ru-ru'
 TIME_ZONE = 'UTC'
 USE_TZ = True

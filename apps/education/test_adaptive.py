@@ -4,6 +4,7 @@ from rest_framework.test import APIClient
 from apps.accounts.models import User
 from apps.assessments.models import Test, Question, Option, TestAttempt
 from .adaptive import calculate_readiness
+from apps.activities.testing import configure_checklist, submit_checklist
 from .models import (Course, LearningTrack, Module, LearningItem, Lesson,
                      UserLearningItemProgress, UserModuleProgress, PracticeSubmission)
 
@@ -36,7 +37,8 @@ class AdaptiveLearningTests(TestCase):
         self.admin_client.force_login(self.admin)
         self.lecture = self.make_lecture(self.first, 0)
         self.practice = LearningItem.objects.create(module=self.first, type='PRACTICE', title='Practice',
-            position=1, status='PUBLISHED', practice_criteria=['Criterion A', 'Criterion B'])
+            position=1, status='PUBLISHED')
+        configure_checklist(self.practice, ['Criterion A', 'Criterion B'], self.admin)
         self.test = Test.objects.create(title='Final test', is_published=True)
         self.test_item = LearningItem.objects.create(module=self.first, type='TEST', title='Test',
             position=2, status='PUBLISHED', test=self.test)
@@ -57,8 +59,7 @@ class AdaptiveLearningTests(TestCase):
     def prepare(self, checks=None):
         self.assertEqual(self.client.patch(f'/api/v1/items/{self.lecture.short_id}/progress/',
             {'progress_percent': 95}, format='json').status_code, 200)
-        self.assertEqual(self.client.post(f'/api/v1/items/{self.practice.short_id}/practice/',
-            {'checks': checks if checks is not None else [True, True]}, format='json').status_code, 200)
+        self.assertEqual(submit_checklist(self.client, self.practice, checks if checks is not None else [True, True]).status_code, 200)
 
     def submit(self, correct_count=4):
         answers = [{'question': question.pk, 'option': (correct if index < correct_count else wrong).pk}
@@ -109,7 +110,8 @@ class AdaptiveLearningTests(TestCase):
         progress = UserLearningItemProgress.objects.get(user=self.student, learning_item=self.lecture)
         self.assertEqual(progress.progress_percent, 0)
         self.assertFalse(progress.is_completed)
-        self.assertFalse(PracticeSubmission.objects.filter(user=self.student).exists())
+        self.assertTrue(PracticeSubmission.objects.filter(user=self.student).exists())
+        self.assertFalse(PracticeSubmission.objects.filter(user=self.student, is_current=True).exists())
         self.assertEqual(self.client.post(self.attempt_url, {'answers': []}, format='json').status_code, 400)
         self.prepare()
         success = self.submit()['adaptive_result']
@@ -131,15 +133,16 @@ class AdaptiveLearningTests(TestCase):
         self.assertEqual(self.admin_client.patch(url, {'adaptive_threshold': 80}, format='json').status_code, 200)
         self.assertEqual(self.client.get(f'/api/v1/items/{self.next_lecture.short_id}/').status_code, 200)
 
-    def test_practice_checks_are_validated_and_changed_criteria_require_resubmission(self):
+    def test_practice_checks_are_validated_and_changed_criteria_preserve_submissions(self):
         url = f'/api/v1/items/{self.practice.short_id}/practice/'
         for checks in [[True], [True, True, False], ['true', 'false'], [1, 0]]:
-            self.assertEqual(self.client.post(url, {'checks': checks}, format='json').status_code, 400)
+            self.assertEqual(submit_checklist(self.client, self.practice, checks).status_code, 400)
         self.prepare()
-        self.admin_client.patch(f'/api/v1/items/{self.practice.short_id}/',
-            {'practice_criteria': ['New A', 'New B']}, format='json')
-        self.assertIsNone(self.client.get(url).data['checks'])
-        self.assertEqual(self.client.post(self.attempt_url, {'answers': []}, format='json').status_code, 400)
+        old_id = self.practice.practice_version_id
+        configure_checklist(self.practice, ['New A', 'New B'], self.admin)
+        self.assertEqual(self.client.get(url).data['version']['id'], old_id)
+        self.assertEqual(self.client.get(url).data['result']['psi_value'], 1)
+        self.assertEqual(self.client.post(url + 'start/').data['version']['id'], self.practice.practice_version_id)
 
     def test_nonadaptive_course_keeps_existing_access_and_test_behavior(self):
         self.course.adaptive_learning_enabled = False

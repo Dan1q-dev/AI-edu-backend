@@ -6,6 +6,8 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.assessments.models import Test, TestAttempt, Question, Option
+from apps.activities.testing import configure_checklist
+from apps.activities.services import start_submission, submit
 from apps.education.models import (LearningTrack, Course, Module, LearningItem, Lesson,
     UserLearningItemProgress, PracticeSubmission, UserModuleProgress, UserCompetencyProgress)
 from apps.lessons.models import LessonBlock
@@ -30,13 +32,14 @@ class AdminUsersTests(TestCase):
         cls.lecture = LearningItem.objects.create(module=cls.module, type='LECTURE', title='Lecture',
             position=0, status='PUBLISHED', lesson=cls.lesson)
         cls.practice = LearningItem.objects.create(module=cls.module, type='PRACTICE', title='Practice',
-            position=1, status='PUBLISHED', practice_criteria=['Done'])
+            position=1, status='PUBLISHED')
         cls.test = Test.objects.create(title='Test', is_published=True)
         cls.test_item = LearningItem.objects.create(module=cls.module, type='TEST', title='Test',
             position=2, status='PUBLISHED', test=cls.test)
         cls.question = Question.objects.create(test=cls.test, text='Question', position=0)
         cls.correct = Option.objects.create(question=cls.question, text='Yes', is_correct=True, position=0)
         cls.admin = User.objects.create_user('admin@example.test', 'AdminPassword123!', role='ADMIN')
+        configure_checklist(cls.practice, ['Done'], cls.admin)
         cls.student = User.objects.create_user('student@example.test', 'StudentPassword123!',
             first_name='Ada', last_name='Lovelace', learning_track=cls.track)
         cls.media = MediaFile.objects.create(original_name='private.png', content_type='image/png',
@@ -223,7 +226,8 @@ class AdminUsersTests(TestCase):
             answers=[], snapshot=[], earned_points=1, total_points=1, percent=100, passed=True)
         progress = UserLearningItemProgress.objects.create(user=self.student, learning_item=self.lecture,
             progress_percent=96, is_completed=True)
-        submission = PracticeSubmission.objects.create(user=self.student, item=self.practice, criteria=['Done'], checks=[True])
+        submission = start_submission(self.student, self.practice)
+        submit(self.student, self.practice, submission.pk, {'checks': [True]})
         module_progress = UserModuleProgress.objects.create(user=self.student, module=self.module, is_completed=True)
         competency = UserCompetencyProgress.objects.create(user=self.student, course=self.second_course, competency='Python', score=.8)
         self.assertEqual(self.patch({'is_active': False}).status_code, 200)

@@ -2,6 +2,7 @@ import secrets
 from django.conf import settings
 from django.utils.text import slugify
 from django.db import models
+from django.utils import timezone
 from django.db.models import PROTECT
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -100,7 +101,7 @@ class LearningItem(ShortIdModel):
     type = models.CharField(max_length=10, choices=Type.choices)
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    practice_criteria = models.JSONField(default=list, blank=True)
+    practice_version = models.ForeignKey('activities.PracticeVersion', null=True, blank=True, on_delete=PROTECT, related_name='learning_items')
     position = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
     lesson = models.OneToOneField(Lesson, null=True, blank=True, on_delete=PROTECT, related_name='learning_item')
@@ -140,14 +141,30 @@ class UserCompetencyProgress(models.Model):
 
 
 class PracticeSubmission(models.Model):
+    class Status(models.TextChoices):
+        NOT_STARTED = 'NOT_STARTED'
+        IN_PROGRESS = 'IN_PROGRESS'
+        SUBMITTED = 'SUBMITTED'
+        PASSED = 'PASSED'
+        FAILED = 'FAILED'
+        NEEDS_REVISION = 'NEEDS_REVISION'
+
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     item = models.ForeignKey(LearningItem, on_delete=models.CASCADE)
-    criteria = models.JSONField()
-    checks = models.JSONField()
+    practice_version = models.ForeignKey('activities.PracticeVersion', on_delete=PROTECT, related_name='submissions')
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.IN_PROGRESS)
+    started_at = models.DateTimeField(default=timezone.now, editable=False)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    submission_data = models.JSONField(default=dict)
+    criteria_snapshot = models.JSONField(default=list)
+    is_current = models.BooleanField(default=True)
+    criteria = models.JSONField(default=list)  # Legacy snapshots, retained during upgrade.
+    checks = models.JSONField(default=list)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['user', 'item'], name='unique_user_practice_submission')]
+        constraints = [models.UniqueConstraint(fields=['user', 'item'], condition=models.Q(status='IN_PROGRESS'), name='unique_active_practice_submission')]
 
 
 class UserLearningItemProgress(models.Model):

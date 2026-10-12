@@ -7,6 +7,7 @@ from apps.education import views as education
 from apps.lessons import views as lessons
 from apps.assessments import views as assessments
 from apps.mediafiles import views as mediafiles
+from apps.activities import views as activities
 
 urlpatterns = [
     path('django-admin/', admin.site.urls),
@@ -30,7 +31,11 @@ urlpatterns = [
     path('api/v1/items/', education.LearningItemList.as_view()),
     path('api/v1/items/<str:short_id>/', education.LearningItemDetail.as_view()),
     path('api/v1/items/<str:short_id>/progress/', education.ItemProgressView.as_view()),
-    path('api/v1/items/<str:short_id>/practice/', education.ItemPracticeView.as_view()),
+    path('api/v1/items/<str:short_id>/practice/', activities.ItemPracticeView.as_view()),
+    path('api/v1/practice-types/', activities.PracticeCatalogView.as_view()),
+    path('api/v1/items/<str:short_id>/practice/draft/', activities.PracticeDraftView.as_view()),
+    path('api/v1/items/<str:short_id>/practice/start/', activities.PracticeStartView.as_view()),
+    path('api/v1/items/<str:short_id>/practice/history/', activities.PracticeHistoryView.as_view()),
     path('api/v1/lessons/', education.LessonList.as_view()),
     path('api/v1/lessons/<str:short_id>/', education.LessonDetail.as_view()),
     path('api/v1/lessons/<str:short_id>/blocks/', lessons.BlocksView.as_view()),

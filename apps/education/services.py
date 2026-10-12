@@ -36,6 +36,9 @@ def delete_item(item):
         item.delete()
         test.delete()
     elif item.type == LearningItem.Type.PRACTICE and item.practice_id:
+        from .models import PracticeSubmission
+        if PracticeSubmission.objects.filter(item=item).exists():
+            raise ValidationError({'detail': 'Практика содержит попытки студентов и не может быть удалена'})
         practice = item.practice
         item.delete()
         practice.delete()

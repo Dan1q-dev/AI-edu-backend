@@ -60,16 +60,20 @@ def practice_indicator(user, module):
     if not practices:
         # No practical requirements means there are no unmet practical criteria.
         return 1.0
-    submissions = {row.item_id: row for row in PracticeSubmission.objects.filter(user=user, item__in=practices)}
+    submissions = {}
+    for row in PracticeSubmission.objects.select_related('result').filter(
+            user=user, item__in=practices, is_current=True, status='SUBMITTED').order_by('submitted_at', 'pk'):
+        submissions[row.item_id] = row
     completed = total = 0
     for practice in practices:
-        if not practice.practice_criteria:
+        if not practice.practice_version_id:
             raise ValidationError({'detail': 'Для практической работы ещё не настроены критерии. Обратитесь к администратору.'})
         submission = submissions.get(practice.pk)
-        if not submission or submission.criteria != practice.practice_criteria:
+        if not submission or not hasattr(submission, 'result'):
             raise ValidationError({'detail': 'Перед тестом сохраните самопроверку всех практических работ модуля.'})
-        completed += sum(submission.checks)
-        total += len(submission.checks)
+        weight = len(submission.criteria_snapshot) or 1
+        completed += submission.result.psi_value * weight
+        total += weight
     return round(completed / total, 4)
 
 
@@ -119,7 +123,7 @@ def evaluate_module_attempt(user, item, question_results, practice):
         content = module.items.filter(status='PUBLISHED').exclude(type='TEST')
         UserLearningItemProgress.objects.filter(user=user, learning_item__in=content).update(
             progress_percent=0, is_completed=False, completed_at=None)
-        PracticeSubmission.objects.filter(user=user, item__in=content).delete()
+        PracticeSubmission.objects.filter(user=user, item__in=content).update(is_current=False)
     return {
         'readiness': round(readiness * 100, 2), 'threshold': module.adaptive_threshold,
         'module_passed': passed, 'module_completed': progress.is_completed,

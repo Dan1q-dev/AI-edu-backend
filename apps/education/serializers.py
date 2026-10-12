@@ -51,7 +51,6 @@ class LearningItemSerializer(serializers.ModelSerializer):
     is_locked = serializers.SerializerMethodField()
     def get_is_locked(self, obj) -> bool:
         return request_module_is_locked(self.context.get('request'), obj.module)
-    practice_criteria = serializers.ListField(child=serializers.CharField(max_length=300), max_length=30, required=False)
     lesson_short_id = serializers.CharField(source='lesson.short_id', read_only=True, allow_null=True)
     module_short_id = serializers.CharField(source='module.short_id', read_only=True)
     module_title = serializers.CharField(source='module.title', read_only=True)
@@ -61,20 +60,15 @@ class LearningItemSerializer(serializers.ModelSerializer):
     course_title = serializers.CharField(source='module.course.title', read_only=True)
     class Meta:
         model = LearningItem
-        fields = ['id', 'short_id', 'module', 'type', 'title', 'description', 'practice_criteria', 'position', 'status', 'is_locked',
+        fields = ['id', 'short_id', 'module', 'type', 'title', 'description', 'practice_version', 'position', 'status', 'is_locked',
                   'module_short_id', 'module_title', 'module_position', 'course_id', 'course_short_id',
                   'course_title', 'lesson', 'lesson_short_id', 'test', 'practice', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'short_id', 'lesson', 'lesson_short_id', 'test', 'practice', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'short_id', 'lesson', 'lesson_short_id', 'test', 'practice', 'practice_version', 'created_at', 'updated_at']
         validators = []  # Position is assigned and validated under a module lock in the view.
 
     def validate(self, attrs):
-        kind = attrs.get('type', getattr(self.instance, 'type', None))
-        if attrs.get('practice_criteria') and kind != 'PRACTICE':
-            raise serializers.ValidationError({'practice_criteria': 'Критерии доступны только для практической работы'})
+        if 'practice_criteria' in self.initial_data or 'practice_version' in self.initial_data:
+            raise serializers.ValidationError({'detail': 'Используйте редактор версий /practice/draft/'})
+        if attrs.get('type') == 'PRACTICE' and attrs.get('status') == 'PUBLISHED':
+            raise serializers.ValidationError({'status': 'Сначала настройте и опубликуйте версию практики'})
         return attrs
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        if data['is_locked']:
-            data['practice_criteria'] = []
-        return data
