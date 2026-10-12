@@ -9,7 +9,8 @@ class LearningItemMigrationTests(TransactionTestCase):
         latest = executor.loader.graph.leaf_nodes()
         before = [('education', '0007_lesson_draft_data') if app == 'education' else
                   ('assessments', '0001_initial') if app == 'assessments' else
-                  ('activities', '0001_initial') if app == 'activities' else (app, migration)
+                  ('activities', '0001_initial') if app == 'activities' else
+                  ('lessons', '0001_initial') if app == 'lessons' else (app, migration)
                   for app, migration in latest]
         try:
             executor.migrate(before)

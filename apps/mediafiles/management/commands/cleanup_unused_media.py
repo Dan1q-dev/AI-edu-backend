@@ -1,12 +1,14 @@
 from django.core.management.base import BaseCommand
 from apps.mediafiles.models import MediaFile
+from apps.mediafiles.usage import draft_media_ids
 
 class Command(BaseCommand):
-    help = 'Show or delete media files not referenced by any lesson block or track cover'
+    help = 'Show or delete media files not referenced by published content or lesson drafts'
     def add_arguments(self, parser):
         parser.add_argument('--delete', action='store_true')
     def handle(self, *args, **options):
-        unused = MediaFile.objects.filter(lessonblock__isnull=True, learningtrack__isnull=True, course__isnull=True).distinct()
+        unused = MediaFile.objects.filter(lessonblock__isnull=True, lessonattachment__isnull=True,
+                                          learningtrack__isnull=True, course__isnull=True).exclude(pk__in=draft_media_ids()).distinct()
         count = unused.count()
         if options['delete']:
             for media in unused.iterator():

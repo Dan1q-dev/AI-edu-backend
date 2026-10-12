@@ -1,6 +1,13 @@
 from rest_framework import serializers
 from .models import LessonBlock
 
+
+class AttachmentSerializer(serializers.Serializer):
+    media = serializers.IntegerField()
+    name = serializers.CharField()
+    size = serializers.IntegerField()
+    url = serializers.CharField()
+
 class BlockSerializer(serializers.ModelSerializer):
     media_url = serializers.SerializerMethodField()
     class Meta:
@@ -24,3 +31,4 @@ class LessonDraftSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=200)
     description = serializers.CharField(allow_blank=True, required=False)
     blocks = BlockSerializer(many=True)
+    attachments = serializers.ListField(child=serializers.IntegerField(), required=False)

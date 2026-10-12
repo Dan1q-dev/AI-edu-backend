@@ -48,6 +48,7 @@ def delete_item(item):
             Test.objects.filter(lesson=lesson).update(lesson=None)
             PracticeDefinition.objects.filter(lesson=lesson).update(lesson=None)
             LessonBlock.objects.filter(lesson=lesson).delete()
+            lesson.attachments.all().delete()
             lesson.delete()
     order_module_items(item.module_id)
 
@@ -78,6 +79,8 @@ def delete_content(instance):
         if LearningItem.objects.filter(pk=item.pk).exists():
             delete_item(item)
     LessonBlock.objects.filter(lesson_id__in=ids).delete()
+    from apps.lessons.models import LessonAttachment
+    LessonAttachment.objects.filter(lesson_id__in=ids).delete()
     PracticeDefinition.objects.filter(lesson_id__in=ids).delete()
     Test.objects.filter(lesson_id__in=ids).delete()
     Lesson.objects.filter(pk__in=ids).delete()

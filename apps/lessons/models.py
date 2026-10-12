@@ -13,3 +13,13 @@ class LessonBlock(models.Model):
     class Meta:
         ordering = ['position', 'id']
         constraints = [models.UniqueConstraint(fields=['lesson', 'position'], name='unique_block_position')]
+
+
+class LessonAttachment(models.Model):
+    lesson = models.ForeignKey('education.Lesson', on_delete=models.PROTECT, related_name='attachments')
+    media = models.ForeignKey('mediafiles.MediaFile', on_delete=models.PROTECT)
+    position = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ['position', 'id']
+        constraints = [models.UniqueConstraint(fields=['lesson', 'position'], name='unique_attachment_position')]

@@ -33,6 +33,7 @@ urlpatterns = [
     path('api/v1/lessons/', education.LessonList.as_view()),
     path('api/v1/lessons/<str:short_id>/', education.LessonDetail.as_view()),
     path('api/v1/lessons/<str:short_id>/blocks/', lessons.BlocksView.as_view()),
+    path('api/v1/lessons/<str:short_id>/attachments/', lessons.AttachmentsView.as_view()),
     path('api/v1/lessons/<str:short_id>/draft/', lessons.LessonDraftView.as_view()),
     path('api/v1/lessons/<str:short_id>/test/', assessments.TestView.as_view()),
     path('api/v1/items/<str:short_id>/test/', assessments.ItemTestView.as_view()),
@@ -41,7 +42,9 @@ urlpatterns = [
     path('api/v1/lessons/<str:short_id>/attempts/', assessments.AttemptView.as_view()),
     path('api/v1/attempts/', assessments.AllAttemptsView.as_view()),
     path('api/v1/media/', mediafiles.MediaUploadView.as_view()),
+    path('api/v1/media/files/', mediafiles.AttachmentUploadView.as_view()),
     path('api/v1/media/<int:pk>/', mediafiles.MediaView.as_view()),
+    path('api/v1/media/<int:pk>/download/', mediafiles.MediaDownloadView.as_view()),
     path('api/v1/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/v1/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 ]
