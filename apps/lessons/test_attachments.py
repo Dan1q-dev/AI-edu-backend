@@ -1,14 +1,14 @@
 from tempfile import TemporaryDirectory
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import TransactionTestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.education.models import Course, LearningTrack, Lesson, Module
 
 
-class LessonAttachmentTests(TestCase):
+class LessonAttachmentTests(TransactionTestCase):
     def setUp(self):
         self.temp_media = TemporaryDirectory()
         self.addCleanup(self.temp_media.cleanup)
