@@ -16,7 +16,7 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'email', 'role', 'course_access_mode', 'date_joined']
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
     learning_track = serializers.PrimaryKeyRelatedField(queryset=LearningTrack.objects.filter(is_active=True, is_published=True))
     class Meta:
         model = User
@@ -39,7 +39,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    password = serializers.CharField()
+    password = serializers.CharField(trim_whitespace=False)
 
 class ProfileUpdateSerializer(serializers.ModelSerializer):
     learning_track = serializers.PrimaryKeyRelatedField(queryset=LearningTrack.objects.filter(is_active=True, is_published=True), required=False, allow_null=True)
@@ -65,5 +65,5 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             return updated
 
 class PasswordSerializer(serializers.Serializer):
-    current_password = serializers.CharField()
-    new_password = serializers.CharField()
+    current_password = serializers.CharField(trim_whitespace=False)
+    new_password = serializers.CharField(trim_whitespace=False)
