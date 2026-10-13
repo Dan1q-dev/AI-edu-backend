@@ -61,6 +61,8 @@ SPECTACULAR_SETTINGS = {'TITLE': 'AI Edu API', 'VERSION': '1.0.0',
                             ('LECTURE', 'Лекция'), ('TEST', 'Тест'), ('PRACTICE', 'Практика')],
                             'ContentStatusEnum': [('DRAFT', 'Draft'), ('PUBLISHED', 'Published')],
                             'LearningItemStatusEnum': [('DRAFT', 'Черновик'), ('PUBLISHED', 'Опубликован')],
+                            'WorkspaceMessageRoleEnum': [('user', 'User'), ('assistant', 'Assistant')],
+                            'RoleEnum': [('STUDENT', 'Student'), ('ADMIN', 'Admin')],
                             'PracticeGradingSourceEnum': [('SELF_ASSESSMENT', 'Self Assessment'),
                                 ('AUTO_GRADING', 'Auto Grading'), ('AI_GRADING', 'Ai Grading'), ('TEACHER', 'Teacher')]}}
 LANGUAGE_CODE = 'ru-ru'
@@ -84,6 +86,14 @@ SECURE_REFERRER_POLICY = 'same-origin'
 DATA_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 MAX_IMAGE_BYTES = int(os.getenv('MAX_IMAGE_BYTES', str(10 * 1024 * 1024)))
+AI_BASE_URL = os.getenv('AI_BASE_URL', '').rstrip('/')
+AI_API_KEY = os.getenv('AI_API_KEY', '')
+AI_MODEL = os.getenv('AI_MODEL', '')
+if len(AI_MODEL) > 200:
+    raise RuntimeError('AI_MODEL must be at most 200 characters')
+AI_TIMEOUT_SECONDS = int(os.getenv('AI_TIMEOUT_SECONDS', '120'))
+if not 1 <= AI_TIMEOUT_SECONDS <= 600:
+    raise RuntimeError('AI_TIMEOUT_SECONDS must be between 1 and 600')
 if os.getenv('S3_ENDPOINT_URL'):
     STORAGES = {'default': {'BACKEND': 'storages.backends.s3.S3Storage', 'OPTIONS': {
         'bucket_name': os.getenv('S3_BUCKET', 'aiedu'), 'endpoint_url': os.getenv('S3_ENDPOINT_URL'),

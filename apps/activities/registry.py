@@ -93,3 +93,6 @@ class ChecklistPlugin:
 
 registry = PracticeRegistry()
 registry.register(ChecklistPlugin())
+
+from .workspace.lecture import make_lecture_plugin
+registry.register(make_lecture_plugin(ChecklistPlugin))

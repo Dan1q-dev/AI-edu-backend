@@ -1,0 +1,49 @@
+from rest_framework import serializers
+from apps.activities.models import WorkspaceDocument, WorkspaceMessage, WorkspaceOperation
+from apps.activities.serializers import StrictSerializer
+
+
+class DocumentCreate(StrictSerializer):
+    parameters = serializers.JSONField()
+
+
+class DocumentUpdate(StrictSerializer):
+    revision = serializers.IntegerField(min_value=1)
+    parameters = serializers.JSONField(required=False)
+    content = serializers.JSONField(required=False)
+
+    def validate(self, attrs):
+        if not {'parameters', 'content'} & set(attrs):
+            raise serializers.ValidationError('Укажите parameters или content')
+        return attrs
+
+
+class OperationCreate(StrictSerializer):
+    request_id = serializers.UUIDField()
+    revision = serializers.IntegerField(min_value=1)
+    kind = serializers.ChoiceField(choices=WorkspaceOperation.Kind.choices)
+    prompt = serializers.CharField(max_length=8000)
+
+
+class DocumentOutput(serializers.ModelSerializer):
+    class Meta:
+        model = WorkspaceDocument
+        fields = ['id', 'submission', 'document_type', 'schema_version', 'parameters', 'content',
+                  'revision', 'created_at', 'updated_at']
+        read_only_fields = fields
+
+
+class MessageOutput(serializers.ModelSerializer):
+    class Meta:
+        model = WorkspaceMessage
+        fields = ['id', 'operation', 'role', 'text', 'created_at']
+        read_only_fields = fields
+
+
+class OperationOutput(serializers.ModelSerializer):
+    class Meta:
+        model = WorkspaceOperation
+        fields = ['id', 'document', 'request_id', 'kind', 'status', 'base_revision', 'result', 'error_code',
+                  'model', 'duration_ms', 'input_tokens', 'output_tokens', 'total_tokens', 'cost', 'cost_currency',
+                  'attempts', 'created_at', 'started_at', 'finished_at']
+        read_only_fields = fields

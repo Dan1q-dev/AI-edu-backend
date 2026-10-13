@@ -71,7 +71,7 @@ def current_submission(user, item):
 def start_submission(user, item):
     # Same user lock as test attempts, including adaptive reset. Item lock serializes publication.
     User.objects.select_for_update().get(pk=user.pk)
-    item = LearningItem.objects.select_for_update().select_related('practice_version').get(pk=item.pk)
+    item = LearningItem.objects.select_for_update(of=('self',)).select_related('practice_version').get(pk=item.pk)
     version = item.practice_version
     if not version or version.status != 'PUBLISHED':
         raise ValidationError({'detail': 'Практическая работа ещё не настроена'})
@@ -89,12 +89,19 @@ def submit(user, item, submission_id, data):
         pk=submission_id, user=user, item=item).first()
     if not submission:
         raise NotFound()
-    if submission.status != 'IN_PROGRESS':
-        if submission.submission_data == data and submission.is_current:
-            return submission  # Network retry: preserve the existing snapshot and score.
-        raise ValidationError({'detail': 'Попытка уже сдана. Начните новую попытку'})
     version = submission.practice_version
     plugin = registry.get(version.practice_definition.practice_type, version.plugin_version)
+    is_workspace = bool(getattr(plugin, 'workspace_type', None))
+    if submission.status != 'IN_PROGRESS':
+        saved_data = submission.submission_data
+        if is_workspace:
+            saved_data = {key: value for key, value in saved_data.items() if key != 'document'}
+        if saved_data == data and submission.is_current:
+            return submission  # Network retry: preserve the existing snapshot and score.
+        raise ValidationError({'detail': 'Попытка уже сдана. Начните новую попытку'})
+    if is_workspace:
+        from .workspace.services import prepare_submission
+        data = prepare_submission(user, submission, data)
     evaluated = plugin.evaluate(version, data)
     if (not math.isfinite(evaluated.score) or not 0 <= evaluated.score <= 1 or
             evaluated.source not in PracticeResult.Source.values):

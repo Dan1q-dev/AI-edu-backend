@@ -136,3 +136,76 @@ class PracticeResult(models.Model):
     psi_value = models.FloatField(validators=[MinValueValidator(0), MaxValueValidator(1)])
     psi_source = models.CharField(max_length=20, choices=Source.choices)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+
+class WorkspaceDocument(models.Model):
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='workspace_documents')
+    submission = models.OneToOneField('education.PracticeSubmission', on_delete=models.CASCADE, related_name='workspace_document')
+    document_type = models.CharField(max_length=100)
+    schema_version = models.PositiveIntegerField(default=1)
+    parameters = models.JSONField(default=dict)
+    content = models.JSONField(default=dict)
+    revision = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class WorkspaceOperation(models.Model):
+    class Kind(models.TextChoices):
+        GENERATE = 'generate'
+        IMPROVE_PROMPT = 'improve_prompt'
+
+    class Status(models.TextChoices):
+        PENDING = 'PENDING'
+        RUNNING = 'RUNNING'
+        SUCCEEDED = 'SUCCEEDED'
+        FAILED = 'FAILED'
+
+    document = models.ForeignKey(WorkspaceDocument, on_delete=models.CASCADE, related_name='operations')
+    request_id = models.UUIDField()
+    kind = models.CharField(max_length=30, choices=Kind.choices)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    base_revision = models.PositiveIntegerField()
+    input_data = models.JSONField()
+    result = models.JSONField(default=dict)
+    error_code = models.CharField(max_length=50, blank=True)
+    model = models.CharField(max_length=200)
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    input_tokens = models.PositiveIntegerField(null=True, blank=True)
+    output_tokens = models.PositiveIntegerField(null=True, blank=True)
+    total_tokens = models.PositiveIntegerField(null=True, blank=True)
+    cost = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
+    cost_currency = models.CharField(max_length=10, blank=True)
+    timeout_seconds = models.PositiveIntegerField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    lease_token = models.UUIDField(null=True, blank=True, editable=False)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+        indexes = [models.Index(fields=['status', 'created_at'], name='workspace_queue_idx'),
+                   models.Index(fields=['status', 'lease_expires_at'], name='workspace_lease_idx')]
+        constraints = [
+            models.UniqueConstraint(fields=['document', 'request_id'], name='unique_workspace_request'),
+            models.UniqueConstraint(fields=['document'], condition=models.Q(status__in=['PENDING', 'RUNNING']),
+                                    name='unique_active_workspace_op'),
+        ]
+
+
+class WorkspaceMessage(models.Model):
+    class Role(models.TextChoices):
+        USER = 'user'
+        ASSISTANT = 'assistant'
+
+    document = models.ForeignKey(WorkspaceDocument, on_delete=models.CASCADE, related_name='messages')
+    operation = models.ForeignKey(WorkspaceOperation, on_delete=models.CASCADE, related_name='messages')
+    role = models.CharField(max_length=12, choices=Role.choices)
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+        constraints = [models.UniqueConstraint(fields=['operation', 'role'], name='unique_workspace_op_message')]
