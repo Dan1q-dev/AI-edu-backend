@@ -367,13 +367,6 @@ class WorkspaceWorkerTests(WorkspaceFixture, TestCase):
         claimed.refresh_from_db()
         self.assertEqual(claimed.error_code, 'submission_closed')
 
-    def test_once_command_processes_an_operation(self):
-        self.queue()
-        output = StringIO()
-        with patch('apps.activities.workspace.worker.run_ai', return_value=ai_response()):
-            call_command('run_workspace_worker', once=True, stdout=output)
-        self.assertIn('SUCCEEDED', output.getvalue())
-
 
 class WorkspaceSchemaTests(SimpleTestCase):
     def test_safe_tiptap_roundtrip_including_lists_links_and_code(self):
@@ -493,6 +486,23 @@ class WorkspaceAIClientTests(SimpleTestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
+
+
+@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
+                   AI_BASE_URL='https://provider.test/v1', AI_MODEL='test-model')
+class WorkspaceWorkerCommandTests(WorkspaceFixture, TransactionTestCase):
+    def test_once_command_processes_an_operation(self):
+        # The command manages connection lifetimes and must run outside TestCase's
+        # wrapping atomic block, just as it does in a standalone worker process.
+        operation = self.queue()
+        output = StringIO()
+        with patch('apps.activities.workspace.worker.run_ai', return_value=ai_response()):
+            call_command('run_workspace_worker', once=True, stdout=output)
+        operation.refresh_from_db()
+        self.document.refresh_from_db()
+        self.assertIn('SUCCEEDED', output.getvalue())
+        self.assertEqual(operation.status, 'SUCCEEDED')
+        self.assertEqual(self.document.content, lecture())
 
 
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],

@@ -58,6 +58,11 @@ def upgrade_practices(apps, schema_editor):
             Result.objects.using(alias).create(submission=row, self_assessment_score=score, effective_score=score,
                 grading_source='SELF_ASSESSMENT', psi_value=score, psi_source='SELF_ASSESSMENT')
 
+    # Flush PostgreSQL's deferred FK triggers before the following schema changes.
+    # Keep the migration atomic so a failed upgrade rolls back data and schema.
+    if schema_editor.connection.vendor == 'postgresql':
+        schema_editor.connection.check_constraints()
+
 
 def restore_criteria(apps, schema_editor):
     alias = schema_editor.connection.alias
@@ -67,6 +72,10 @@ def restore_criteria(apps, schema_editor):
         version = Version.objects.using(alias).get(pk=item.practice_version_id)
         item.practice_criteria = [row['title'] for row in version.config.get('criteria', [])]
         item.save(using=alias, update_fields=['practice_criteria'])
+
+    # The reverse migration also changes the schema after these data updates.
+    if schema_editor.connection.vendor == 'postgresql':
+        schema_editor.connection.check_constraints()
 
 
 class Migration(migrations.Migration):

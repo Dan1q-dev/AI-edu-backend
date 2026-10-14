@@ -48,5 +48,15 @@ class PracticeUpgradeTests(TransactionTestCase):
             self.assertEqual(historical.criteria_snapshot[0]['title'], 'Old')
             self.assertEqual(historical.result.psi_value, 1)
             self.assertNotEqual(historical.practice_version_id, LearningItem.objects.get(pk=stale_item.pk).practice_version_id)
+
+            # Exercise reverse data updates followed by schema changes on a
+            # populated database, including PostgreSQL's deferred FK triggers.
+            executor = MigrationExecutor(connection)
+            executor.migrate(before)
+            restored = executor.loader.project_state(before).apps
+            restored_item = restored.get_model('education', 'LearningItem').objects.get(pk=item.pk)
+            self.assertEqual(restored_item.practice_criteria, ['A', 'B', 'C', 'D'])
+            restored_progress = restored.get_model('education', 'UserLearningItemProgress').objects.get(pk=progress.pk)
+            self.assertEqual(restored_progress.progress_percent, 75)
         finally:
             MigrationExecutor(connection).migrate(latest)
