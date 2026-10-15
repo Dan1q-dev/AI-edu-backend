@@ -7,6 +7,7 @@ from apps.education import views as education
 from apps.lessons import views as lessons
 from apps.assessments import views as assessments
 from apps.mediafiles import views as mediafiles
+from apps.tutor.views import TutorChatView, TutorSpeechView, TutorTranscribeView
 from apps.activities import views as activities
 from apps.activities.workspace import views as workspace
 
@@ -18,6 +19,9 @@ urlpatterns = [
     path('api/v1/auth/logout/', accounts.LogoutView.as_view()),
     path('api/v1/auth/me/', accounts.ProfileView.as_view()),
     path('api/v1/auth/password/', accounts.PasswordView.as_view()),
+    path('api/v1/tutor/chat/', TutorChatView.as_view()),
+    path('api/v1/tutor/speech/', TutorSpeechView.as_view()),
+    path('api/v1/tutor/transcribe/', TutorTranscribeView.as_view()),
     path('api/v1/me/learning/', education.LearningDashboardView.as_view()),
     path('api/v1/admin/users/', admin_accounts.AdminUserList.as_view()),
     path('api/v1/admin/users/<int:pk>/', admin_accounts.AdminUserDetail.as_view()),

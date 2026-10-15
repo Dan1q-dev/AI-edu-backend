@@ -15,6 +15,7 @@ INSTALLED_APPS = [
     'rest_framework', 'drf_spectacular', 'storages',
     'apps.accounts', 'apps.education', 'apps.lessons', 'apps.assessments',
     'apps.mediafiles', 'apps.activities',
+    'apps.tutor',
 ]
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -86,6 +87,11 @@ SECURE_REFERRER_POLICY = 'same-origin'
 DATA_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 MAX_IMAGE_BYTES = int(os.getenv('MAX_IMAGE_BYTES', str(10 * 1024 * 1024)))
+AI_SERVICE_URL = os.getenv('AI_SERVICE_URL', '').rstrip('/')
+AI_SERVICE_API_KEY = os.getenv('AI_SERVICE_API_KEY', '')
+AI_AVATAR_SERVICE_URL = os.getenv('AI_AVATAR_SERVICE_URL', '').rstrip('/') if DEBUG else ''
+AI_SERVICE_TIMEOUT = int(os.getenv('AI_SERVICE_TIMEOUT', '90'))
+AI_TUTOR_RATE = os.getenv('AI_TUTOR_RATE', '20/min')
 AI_BASE_URL = os.getenv('AI_BASE_URL', '').rstrip('/')
 AI_API_KEY = os.getenv('AI_API_KEY', '')
 AI_MODEL = os.getenv('AI_MODEL', '')
