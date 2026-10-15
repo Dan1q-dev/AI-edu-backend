@@ -219,13 +219,93 @@ class WorkspaceAPITests(WorkspaceFixture, TestCase):
         self.document.submission.refresh_from_db()
         self.assertEqual(self.document.submission.practice_version_id, old_version)
 
-    def test_regular_checklist_does_not_gain_a_workspace(self):
+    def test_legacy_checklist_opens_as_a_chat_without_losing_its_version(self):
         from .testing import configure_checklist
         item = LearningItem.objects.create(title='Checklist', module=self.module, position=1, type='PRACTICE')
         configure_checklist(item, ['Checked'], self.user)
         response = self.client.post(f'/api/v1/items/{item.short_id}/practice/workspace/', {'parameters': self.parameters}, format='json')
-        self.assertEqual(response.status_code, 400)
-        self.assertFalse(PracticeSubmission.objects.filter(item=item).exists())
+        self.assertEqual(response.status_code, 201)
+        submission = PracticeSubmission.objects.get(item=item)
+        self.assertEqual(submission.practice_version.practice_definition.practice_type, 'checklist_practice')
+
+    def test_chat_creation_needs_only_language_and_restores_document_in_runtime_state(self):
+        self.client.force_login(self.other)
+        response = self.client.post(self.item_path + 'workspace/', {'language': 'kk'}, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data['parameters']['language'], 'kk')
+        state = self.client.get(self.item_path)
+        self.assertEqual(state.data['submission']['document_id'], response.data['id'])
+
+    def test_workshop_publishes_without_criteria_and_can_replace_legacy_assignment(self):
+        from .testing import configure_checklist
+        item = LearningItem.objects.create(title='Legacy', module=self.module, position=1, type='PRACTICE')
+        configure_checklist(item, ['Old criterion'], self.user)
+        old_version = item.practice_version
+        save_draft(item, self.user, {**self.draft, 'config': {}})
+        publish_draft(item)
+        item.refresh_from_db()
+        self.assertEqual(item.practice.practice_type, 'lecture_workshop')
+        self.assertEqual(item.practice_version.config, {})
+        self.assertEqual(item.practice_version.criteria.count(), 0)
+        old_version.refresh_from_db()
+        self.assertEqual(old_version.practice_definition.practice_type, 'checklist_practice')
+        self.assertEqual(old_version.criteria.count(), 1)
+
+    def test_done_completes_without_a_lecture_and_does_not_record_self_assessment(self):
+        data = {'submission_id': self.document.submission_id, 'submission_data': {'completed': True}}
+        response = self.client.post(self.item_path, data, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data['is_completed'])
+        self.assertEqual(response.data['progress_percent'], 100)
+        self.assertEqual(response.data['result']['grading_source'], 'COMPLETION')
+        self.assertIsNone(response.data['result']['self_assessment_score'])
+        self.assertEqual(response.data['submission']['criteria_snapshot'], [])
+        self.assertEqual(self.client.post(self.item_path, data, format='json').status_code, 200)
+        self.assertEqual(PracticeResult.objects.count(), 1)
+
+    def test_done_without_opening_a_chat_is_allowed(self):
+        from .services import start_submission
+        self.client.force_login(self.other)
+        submission = start_submission(self.other, self.item)
+        response = self.client.post(self.item_path, {'submission_id': submission.pk,
+            'submission_data': {'completed': True}}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data['is_completed'])
+        self.assertFalse(WorkspaceDocument.objects.filter(submission=submission).exists())
+
+    def test_done_snapshots_generated_lecture_and_waits_for_queued_work(self):
+        self.client.patch(self.path, {'revision': 1, 'content': lecture()}, format='json')
+        self.document.refresh_from_db()
+        queued = self.queue()
+        data = {'submission_id': self.document.submission_id, 'submission_data': {'completed': True}}
+        self.assertEqual(self.client.post(self.item_path, data, format='json').status_code, 409)
+        queued.status = 'FAILED'
+        queued.save()
+        response = self.client.post(self.item_path, data, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['submission']['submission_data']['document']['content'], lecture())
+
+    def test_done_rejects_false_values_unknown_fields_and_foreign_documents(self):
+        for payload in ({'completed': False}, {'completed': 1}, {'completed': True, 'score': 1}):
+            self.assertEqual(self.client.post(self.item_path, {'submission_id': self.document.submission_id,
+                'submission_data': payload}, format='json').status_code, 400)
+        other_document, _ = create_document(self.other, self.item, self.parameters)
+        response = self.client.post(self.item_path, {'submission_id': self.document.submission_id,
+            'submission_data': {'completed': True, 'document_id': other_document.pk, 'document_revision': 1}}, format='json')
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(PracticeResult.objects.exists())
+
+    def test_followup_uses_previous_conversation_and_current_lecture(self):
+        self.queue()
+        with patch('apps.activities.workspace.worker.run_ai', return_value=ai_response()):
+            execute_operation(claim_next_operation())
+        self.document.refresh_from_db()
+        followup = self.queue()
+        messages = followup.input_data['messages']
+        self.assertGreater(len(messages), 2)
+        self.assertTrue(any(row['role'] == 'assistant' and lecture()['title'] in row['content'] for row in messages))
+        history = self.client.get(self.path + 'messages/').data['results']
+        self.assertEqual(history[-2]['content'], lecture())
 
 
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],

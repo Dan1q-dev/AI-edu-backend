@@ -4,7 +4,8 @@ from apps.activities.serializers import StrictSerializer
 
 
 class DocumentCreate(StrictSerializer):
-    parameters = serializers.JSONField()
+    parameters = serializers.JSONField(required=False)
+    language = serializers.ChoiceField(choices=['ru', 'kk', 'en'], default='ru')
 
 
 class DocumentUpdate(StrictSerializer):
@@ -34,9 +35,16 @@ class DocumentOutput(serializers.ModelSerializer):
 
 
 class MessageOutput(serializers.ModelSerializer):
+    content = serializers.SerializerMethodField()
+
+    def get_content(self, message) -> dict | None:
+        if message.role == 'assistant' and message.operation.kind == 'generate':
+            return message.operation.result.get('content')
+        return None
+
     class Meta:
         model = WorkspaceMessage
-        fields = ['id', 'operation', 'role', 'text', 'created_at']
+        fields = ['id', 'operation', 'role', 'text', 'content', 'created_at']
         read_only_fields = fields
 
 

@@ -44,7 +44,9 @@ class PracticeEngineTests(TestCase):
     def test_catalog_and_unconfigured_creation(self):
         response = self.client.get('/api/v1/practice-types/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual([row['type'] for row in response.data], ['checklist_practice', 'lecture_workshop'])
+        self.assertEqual([row['type'] for row in response.data], ['lecture_workshop'])
+        self.assertEqual(response.data[0]['grading'], 'completion')
+        self.assertNotIn('criteria', response.data[0]['capabilities'])
         self.assertIn('config_schema', response.data[0])
         self.assertEqual(self.admin_client.get(self.path + 'draft/').data['versions'], [])
         self.assertEqual(self.admin_client.patch(f'/api/v1/items/{self.item.short_id}/', {'status': 'PUBLISHED'}, format='json').status_code, 400)

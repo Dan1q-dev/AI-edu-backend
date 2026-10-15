@@ -62,6 +62,7 @@ class DraftOutput(serializers.Serializer):
 
 class SubmissionOutput(serializers.Serializer):
     id = serializers.IntegerField()
+    document_id = serializers.IntegerField(allow_null=True)
     status = serializers.CharField()
     practice_version = serializers.IntegerField()
     submission_data = serializers.JSONField()

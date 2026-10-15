@@ -49,7 +49,7 @@ def locked_document(user, document):
 
 
 @transaction.atomic
-def create_document(user, item, parameters):
+def create_document(user, item, parameters=None, language='ru'):
     # Validate against the pinned version if an attempt already exists.
     user = User.objects.select_for_update().get(pk=user.pk)
     active = PracticeSubmission.objects.filter(user=user, item=item, status='IN_PROGRESS').select_related(
@@ -60,6 +60,10 @@ def create_document(user, item, parameters):
     plugin = registry.get(version.practice_definition.practice_type, version.plugin_version)
     if not getattr(plugin, 'workspace_type', None):
         raise ValidationError({'detail': 'Эта практика не поддерживает workspace'})
+    if parameters is None:
+        parameters = {'discipline': 'По запросу пользователя', 'topic': 'По запросу пользователя',
+                      'course': 'Учебная лекция', 'audience': 'Обучающиеся', 'duration_minutes': 45,
+                      'difficulty': 'intermediate', 'learning_outcomes': ['Изучить тему запроса'], 'language': language}
     parameters = plugin.validate_workspace_parameters(parameters)
     submission = start_submission(user, item)
     from apps.education.access import can_access_item
@@ -104,19 +108,39 @@ def create_operation(user, document, data):
     if not settings.AI_BASE_URL or not settings.AI_MODEL:
         raise AIUnavailable()
     parameters = plugin.validate_workspace_parameters(document.parameters)
+    messages = plugin.workspace_prompt(data['kind'], parameters, data['prompt'])
+    history = list(document.messages.filter(operation__status='SUCCEEDED').order_by('-id')[:12])
+    messages[1:1] = [{'role': row.role, 'content': row.text} for row in reversed(history)]
+    if document.content and data['kind'] == 'generate':
+        import json
+        messages.insert(-1, {'role': 'assistant', 'content': json.dumps(document.content, ensure_ascii=False)})
     operation = WorkspaceOperation.objects.create(document=document, request_id=data['request_id'],
         kind=data['kind'], base_revision=document.revision, model=settings.AI_MODEL,
         timeout_seconds=settings.AI_TIMEOUT_SECONDS,
         input_data={'parameters': parameters, 'prompt': data['prompt'],
-                    'messages': plugin.workspace_prompt(data['kind'], parameters, data['prompt'])})
+                    'messages': messages})
     WorkspaceMessage.objects.create(document=document, operation=operation, role='user', text=data['prompt'])
     return operation
 
 
 def prepare_submission(user, submission, data):
-    if (not isinstance(data, dict) or set(data) != {'checks', 'document_id', 'document_revision'} or
+    if (isinstance(data, dict) and set(data) == {'checks'} and
+            submission.practice_version.practice_definition.practice_type == 'checklist_practice' and
+            not WorkspaceDocument.objects.filter(submission=submission).exists()):
+        return data  # Historical checklist client.
+    completion = isinstance(data, dict) and data.get('completed') is True
+    if completion:
+        if set(data) - {'completed', 'document_id', 'document_revision'}:
+            raise ValidationError({'submission_data': 'Неизвестные поля завершения практики'})
+        if set(data) == {'completed'}:
+            document = WorkspaceDocument.objects.select_for_update().filter(owner=user, submission=submission).first()
+            if document is None:
+                return data
+            data = {**data, 'document_id': document.pk, 'document_revision': document.revision}
+    expected = {'completed' if completion else 'checks', 'document_id', 'document_revision'}
+    if (not isinstance(data, dict) or set(data) != expected or
             type(data['document_id']) is not int or type(data['document_revision']) is not int):
-        raise ValidationError({'submission_data': 'Укажите checks, document_id и document_revision'})
+        raise ValidationError({'submission_data': 'Укажите завершение работы, document_id и document_revision'})
     document = WorkspaceDocument.objects.select_for_update().filter(
         pk=data['document_id'], owner=user, submission=submission).first()
     if not document:
@@ -127,6 +151,7 @@ def prepare_submission(user, submission, data):
         raise Conflict('Дождитесь завершения AI-операции')
     plugin = workspace_plugin(submission)
     plugin.validate_workspace_parameters(document.parameters)
-    plugin.validate_workspace_content(document.content)
+    if document.content or not completion:
+        plugin.validate_workspace_content(document.content)
     return {**deepcopy(data), 'document': {'parameters': deepcopy(document.parameters),
             'content': deepcopy(document.content), 'schema_version': document.schema_version}}

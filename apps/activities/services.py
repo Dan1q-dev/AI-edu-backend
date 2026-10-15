@@ -22,7 +22,12 @@ def save_draft(item, user, data):
         item.practice = definition
         item.save(update_fields=['practice'])
     if definition.practice_type and definition.practice_type != data['practice_type']:
-        raise ValidationError({'practice_type': 'Тип выбранной практики нельзя изменить'})
+        if definition.practice_type != 'checklist_practice' or data['practice_type'] != 'lecture_workshop':
+            raise ValidationError({'practice_type': 'Тип выбранной практики нельзя изменить'})
+        # Preserve historical versions and attempts when upgrading an old assignment.
+        definition = PracticeDefinition.objects.create(title=item.title, created_by=user)
+        item.practice = definition
+        item.save(update_fields=['practice'])
     definition.practice_type = data['practice_type']
     definition.title = data['title']
     definition.description = data['description']
@@ -46,7 +51,7 @@ def save_draft(item, user, data):
 def publish_draft(item):
     item = LearningItem.objects.select_for_update().get(pk=item.pk)
     if not item.practice_id:
-        raise ValidationError({'detail': 'Сначала выберите тип практики и сохраните черновик'})
+        raise ValidationError({'detail': 'Сначала сохраните черновик практики'})
     draft = item.practice.versions.select_for_update().filter(status='DRAFT').last()
     if not draft:
         if item.practice_version_id:
@@ -96,6 +101,8 @@ def submit(user, item, submission_id, data):
         saved_data = submission.submission_data
         if is_workspace:
             saved_data = {key: value for key, value in saved_data.items() if key != 'document'}
+            if data == {'completed': True} and saved_data.get('completed') is True and submission.is_current:
+                return submission
         if saved_data == data and submission.is_current:
             return submission  # Network retry: preserve the existing snapshot and score.
         raise ValidationError({'detail': 'Попытка уже сдана. Начните новую попытку'})
@@ -136,6 +143,7 @@ def runtime_state(user, item, submission=None):
         'version': VersionOutput(version).data if version else None,
         'current_version_id': item.practice_version_id,
         'submission': {'id': submission.pk, 'status': submission.status,
+            'document_id': getattr(getattr(submission, 'workspace_document', None), 'pk', None),
             'practice_version': submission.practice_version_id, 'submission_data': submission.submission_data,
             'criteria_snapshot': submission.criteria_snapshot, 'started_at': submission.started_at,
             'submitted_at': submission.submitted_at, 'completed_at': submission.completed_at} if submission else None,

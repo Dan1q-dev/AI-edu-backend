@@ -25,7 +25,8 @@ class WorkspaceCreateView(generics.GenericAPIView):
         item = practice_item(request, short_id)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        document, created = create_document(request.user, item, serializer.validated_data['parameters'])
+        document, created = create_document(request.user, item, serializer.validated_data.get('parameters'),
+                                            serializer.validated_data['language'])
         return Response(DocumentOutput(document).data, status=201 if created else 200)
 
 
@@ -50,7 +51,7 @@ class WorkspaceMessagesView(generics.GenericAPIView):
     @extend_schema(responses=MessageOutput(many=True))
     def get(self, request, pk):
         document = owned_document(request, pk)
-        page = self.paginate_queryset(document.messages.all())
+        page = self.paginate_queryset(document.messages.select_related('operation').all())
         return self.get_paginated_response(MessageOutput(page, many=True).data)
 
 

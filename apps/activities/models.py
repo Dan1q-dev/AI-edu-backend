@@ -122,6 +122,7 @@ class PracticeCriterion(models.Model):
 
 class PracticeResult(models.Model):
     class Source(models.TextChoices):
+        COMPLETION = 'COMPLETION'
         SELF_ASSESSMENT = 'SELF_ASSESSMENT'
         AUTO_GRADING = 'AUTO_GRADING'
         AI_GRADING = 'AI_GRADING'

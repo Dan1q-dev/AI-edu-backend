@@ -67,10 +67,10 @@ def practice_indicator(user, module):
     completed = total = 0
     for practice in practices:
         if not practice.practice_version_id:
-            raise ValidationError({'detail': 'Для практической работы ещё не настроены критерии. Обратитесь к администратору.'})
+            raise ValidationError({'detail': 'Практическая работа ещё не настроена. Обратитесь к администратору.'})
         submission = submissions.get(practice.pk)
         if not submission or not hasattr(submission, 'result'):
-            raise ValidationError({'detail': 'Перед тестом сохраните самопроверку всех практических работ модуля.'})
+            raise ValidationError({'detail': 'Перед тестом завершите все практические работы модуля кнопкой «Сделано».'})
         weight = len(submission.criteria_snapshot) or 1
         completed += submission.result.psi_value * weight
         total += weight

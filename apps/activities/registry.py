@@ -38,7 +38,7 @@ class PracticeRegistry:
         return plugin
 
     def manifests(self):
-        return [plugin.manifest for plugin in self._plugins.values()]
+        return [plugin.manifest for plugin in self._plugins.values() if plugin.manifest['available']]
 
 
 class ChecklistPlugin:
@@ -92,7 +92,14 @@ class ChecklistPlugin:
 
 
 registry = PracticeRegistry()
-registry.register(ChecklistPlugin())
 
 from .workspace.lecture import make_lecture_plugin
-registry.register(make_lecture_plugin(ChecklistPlugin))
+lecture_plugin = make_lecture_plugin(ChecklistPlugin)
+registry.register(lecture_plugin)
+
+# Keep pinned historical assignments usable with the same chat runtime.
+class LegacyPracticePlugin(type(lecture_plugin)):
+    manifest = {**lecture_plugin.manifest, 'type': 'checklist_practice', 'available': False}
+    validate_config = ChecklistPlugin.validate_config
+
+registry.register(LegacyPracticePlugin())

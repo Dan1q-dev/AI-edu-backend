@@ -66,7 +66,7 @@ SPECTACULAR_SETTINGS = {'TITLE': 'AI Edu API', 'VERSION': '1.0.0',
                             'LearningItemStatusEnum': [('DRAFT', 'Черновик'), ('PUBLISHED', 'Опубликован')],
                             'WorkspaceMessageRoleEnum': [('user', 'User'), ('assistant', 'Assistant')],
                             'RoleEnum': [('STUDENT', 'Student'), ('ADMIN', 'Admin')],
-                            'PracticeGradingSourceEnum': [('SELF_ASSESSMENT', 'Self Assessment'),
+                            'PracticeGradingSourceEnum': [('COMPLETION', 'Completion'), ('SELF_ASSESSMENT', 'Self Assessment'),
                                 ('AUTO_GRADING', 'Auto Grading'), ('AI_GRADING', 'Ai Grading'), ('TEACHER', 'Teacher')]}}
 LANGUAGE_CODE = 'ru-ru'
 TIME_ZONE = 'UTC'
