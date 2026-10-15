@@ -126,14 +126,38 @@ class PlatformFlowTests(TestCase):
         result = self.call(self.student_client, 'post', attempt_path, {'answers': answer})
         self.assertEqual(result.status_code, 201)
         self.assertTrue(result.json()['passed'])
+        review = result.json()['snapshot'][0]
+        self.assertTrue(review['is_correct'])
+        self.assertEqual(review['earned_points'], 2)
+        self.assertEqual(review['selected_option_id'], question['options'][0]['id'])
+        self.assertEqual(review['correct_option_id'], question['options'][0]['id'])
+        self.assertEqual([option['text'] for option in review['options']], ['Four', 'Five'])
         self.assertEqual(self.call(self.student_client, 'post', attempt_path, {'answers': answer}).status_code, 400)
         payload['questions'][0]['options'][0]['text'] = 'Changed answer'
         self.call(self.admin_client, 'put', path, payload)
         attempt = TestAttempt.objects.get()
         self.assertEqual(attempt.test_version, 1)
         self.assertEqual(attempt.snapshot[0]['correct'], 'Four')
+        self.assertEqual(attempt.snapshot[0]['options'], review['options'])
         self.assertEqual(self.call(self.admin_client, 'delete', f'/api/v1/lessons/{self.lesson.short_id}/').status_code, 400)
         self.assertTrue(Lesson.objects.filter(pk=self.lesson.pk).exists())
+
+    def test_review_distinguishes_options_with_identical_text(self):
+        self.lesson.status = 'PUBLISHED'; self.lesson.save()
+        path = f'/api/v1/lessons/{self.lesson.short_id}/test/'
+        payload = {'title': 'Quiz', 'passing_percent': 70, 'max_attempts': 2, 'is_published': True,
+                   'questions': [{'text': 'Pick the first option', 'position': 0, 'points': 2, 'options': [
+                       {'text': 'Same', 'position': 0, 'is_correct': True},
+                       {'text': 'Same', 'position': 1, 'is_correct': False}]}]}
+        self.assertEqual(self.call(self.admin_client, 'put', path, payload).status_code, 200)
+        question = self.student_client.get(path).json()['questions'][0]
+        result = self.call(self.student_client, 'post', f'/api/v1/lessons/{self.lesson.short_id}/attempts/',
+                           {'answers': [{'question': question['id'], 'option': question['options'][1]['id']}]})
+        self.assertEqual(result.status_code, 201)
+        review = result.json()['snapshot'][0]
+        self.assertFalse(review['is_correct'])
+        self.assertEqual(review['earned_points'], 0)
+        self.assertNotEqual(review['selected_option_id'], review['correct_option_id'])
 
     def test_image_upload_validation(self):
         path = '/api/v1/media/'

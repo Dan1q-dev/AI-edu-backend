@@ -127,7 +127,12 @@ def submit_attempt(test_id, user, answers):
         question_results.append((q, choice.is_correct))
         total += q.points
         earned += q.points if choice.is_correct else 0
-        snapshot.append({'question': q.text, 'selected': choice.text, 'correct': next(o.text for o in options if o.is_correct), 'points': q.points, 'competency': q.competency})
+        correct = next(o for o in options if o.is_correct)
+        snapshot.append({'question': q.text, 'selected': choice.text, 'correct': correct.text,
+                         'points': q.points, 'competency': q.competency, 'question_id': q.id,
+                         'selected_option_id': choice.id, 'correct_option_id': correct.id,
+                         'is_correct': choice.is_correct, 'earned_points': q.points if choice.is_correct else 0,
+                         'options': [{'id': option.id, 'text': option.text} for option in options]})
     percent = round(100 * earned / total, 2) if total else 0
     adaptive_result = None
     if adaptive:
