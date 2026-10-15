@@ -43,7 +43,53 @@ API использует `/api/v1/`. OpenAPI схема доступна по `/
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 ```
 
-Production backend использует Gunicorn и создаёт общий volume `aiedu-static` для Django static files. Затем в репозитории frontend запустите его production Compose; Nginx подключается к общей сети и этому volume. TLS должен завершаться на внешнем reverse proxy с заголовком `X-Forwarded-Proto: https`.
+Production backend использует Gunicorn и создаёт volume `aiedu-static` для Django static files. Затем в репозитории frontend запустите его production Compose. Внешний Nginx направляет API на backend и раздаёт Django static files из этого volume. TLS завершается на Nginx с передачей заголовка `X-Forwarded-Proto: https`.
+
+Production-домен платформы — `https://aiedu.com.kz`. В серверном `.env` задайте:
+
+```dotenv
+DEBUG=false
+ALLOWED_HOSTS=aiedu.com.kz,localhost,127.0.0.1,backend
+CSRF_TRUSTED_ORIGINS=https://aiedu.com.kz
+```
+
+`ALLOWED_HOSTS` содержит имена хостов без протокола, `CSRF_TRUSTED_ORIGINS` — полные HTTPS origins. Backend читает существующий `.env` при создании контейнера; обновление исходников не заменяет этот файл. API браузера использует тот же домен и пути `/api/v1/`, поэтому отдельный CORS middleware не требуется. Cookie остаются привязанными к текущему хосту; после смены домена войдите заново.
+
+В HTTPS server block внешнего Nginx укажите `server_name aiedu.com.kz` и сертификат этого домена. Маршруты должны сохранять исходный Host и протокол:
+
+```nginx
+location /api/ {
+    proxy_pass http://127.0.0.1:4000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_buffering off;
+    proxy_read_timeout 180s;
+}
+
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+После изменения `.env` выполните в каталоге серверного backend следующие команды. Они сохраняют образ и тег текущего контейнера, в том числе если CI передавал тег только через окружение:
+
+```bash
+backend_image=$(docker inspect --format '{{.Config.Image}}' ai-edu-backend-1)
+BACKEND_IMAGE="${backend_image%:*}" IMAGE_TAG="${backend_image##*:}" \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  up -d --no-deps --no-build --force-recreate backend
+```
+
+Если меняли Nginx, примените конфигурацию через `sudo nginx -t && sudo systemctl reload nginx`.
+Проверка: `curl -i https://aiedu.com.kz/api/v1/csrf/` должен вернуть `200`. Без сессии `/api/v1/auth/me/` возвращает `403`, после входа — `200`. Ответ `400` на оба GET обычно означает отклонённый Host; проверьте значения в контейнере:
+
+```bash
+docker exec ai-edu-backend-1 python -c "from config import settings; print(settings.ALLOWED_HOSTS); print(settings.CSRF_TRUSTED_ORIGINS)"
+```
 
 ## Проверки
 

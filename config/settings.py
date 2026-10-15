@@ -6,8 +6,10 @@ DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
 SECRET_KEY = os.getenv('SECRET_KEY', 'local-development-only-change-me' if DEBUG else '')
 if not SECRET_KEY or (not DEBUG and (SECRET_KEY.startswith('replace-with') or len(SECRET_KEY) < 32)):
     raise RuntimeError('A strong SECRET_KEY is required')
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,backend').split(',')
-CSRF_TRUSTED_ORIGINS = [x for x in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if x]
+ALLOWED_HOSTS = [host.strip() for host in os.getenv(
+    'ALLOWED_HOSTS', 'localhost,127.0.0.1,backend,aiedu.com.kz').split(',') if host.strip()]
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv(
+    'CSRF_TRUSTED_ORIGINS', 'https://aiedu.com.kz').split(',') if origin.strip()]
 CSRF_FAILURE_VIEW = 'common.exceptions.csrf_failure'
 INSTALLED_APPS = [
     'django.contrib.admin', 'django.contrib.auth', 'django.contrib.contenttypes',

@@ -74,3 +74,47 @@ class AuthSessionTests(TestCase):
         self.assertEqual(self.client.get('/api/v1/auth/me/').status_code, 200)
         self.assertEqual(self.post('auth/logout/').status_code, 204)
         self.assertEqual(self.post('auth/login/', {'email': user.email, 'password': new_password}).status_code, 200)
+
+
+@override_settings(
+    DEBUG=False,
+    ALLOWED_HOSTS=['aiedu.com.kz', 'localhost', '127.0.0.1', 'backend'],
+    CSRF_TRUSTED_ORIGINS=['https://aiedu.com.kz'],
+    SECURE_SSL_REDIRECT=True,
+    SESSION_COOKIE_SECURE=True,
+    CSRF_COOKIE_SECURE=True,
+    PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
+)
+class ProductionDomainAuthTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user('domain@example.test', 'StrongPass321!')
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient(enforce_csrf_checks=True)
+        self.headers = {'HTTP_HOST': 'aiedu.com.kz', 'HTTP_X_FORWARDED_PROTO': 'https'}
+
+    def test_https_proxy_supports_csrf_login_and_session_on_production_domain(self):
+        response = self.client.get('/api/v1/csrf/', **self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.cookies['csrftoken']['secure'])
+        response = self.client.post('/api/v1/auth/login/',
+            {'email': self.user.email, 'password': 'StrongPass321!'}, format='json',
+            HTTP_ORIGIN='https://aiedu.com.kz',
+            HTTP_X_CSRFTOKEN=self.client.cookies['csrftoken'].value, **self.headers)
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.cookies['sessionid']['secure'])
+        self.assertEqual(self.client.get('/api/v1/auth/me/', **self.headers).data['id'], self.user.pk)
+
+    def test_unknown_domain_is_rejected(self):
+        response = self.client.get('/api/v1/csrf/', HTTP_HOST='untrusted.example', HTTP_X_FORWARDED_PROTO='https')
+        self.assertEqual(response.status_code, 400)
+
+    def test_untrusted_origin_is_rejected_even_with_valid_csrf_token(self):
+        self.client.get('/api/v1/csrf/', **self.headers)
+        response = self.client.post('/api/v1/auth/login/',
+            {'email': self.user.email, 'password': 'StrongPass321!'}, format='json',
+            HTTP_ORIGIN='https://untrusted.example',
+            HTTP_X_CSRFTOKEN=self.client.cookies['csrftoken'].value, **self.headers)
+        self.assertEqual(response.status_code, 403)
