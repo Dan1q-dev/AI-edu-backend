@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image
 from .document import ImportFailure
 from .quality import pdf_ocr_mode, uncertain_elements, page_ranges
+from .office import W, A, WordLists, run_colors
 
 
 def pdf_page_modes(path, max_pages):
@@ -92,18 +93,48 @@ class Extractor:
                 self.warnings.append('image_ocr')
             self.on_stage('parsing')
 
-    def office_runs(self, runs):
+    def office_runs(self, runs, defaults=()):
         inline = []
         for run in runs:
             text = run.text
             if not text:
                 continue
             marks = [{'type': name} for name in ('bold', 'italic', 'underline') if getattr(run, name, None) or (hasattr(run, 'font') and getattr(run.font, name, None))]
+            color, highlight = run_colors(run, defaults)
+            if color:
+                marks.append({'type': 'textStyle', 'attrs': {'color': color}})
+            if highlight:
+                marks.append({'type': 'highlight', 'attrs': {'color': highlight}})
             node = {'type': 'text', 'text': text}
             if marks:
                 node['marks'] = marks
             inline.append(node)
         return inline
+
+    def office_paragraph(self, paragraph):
+        defaults = []
+        if paragraph._p.tag.startswith('{' + W + '}'):
+            style = paragraph.style
+            while style is not None:
+                defaults.append(style.element.find('{%s}rPr' % W))
+                style = style.base_style
+            # Include hyperlink runs in their original order too.
+            runs = []
+            for item in paragraph.iter_inner_content():
+                runs.extend(item.runs if hasattr(item, 'runs') else [item])
+        else:
+            defaults.append(paragraph._p.find('{%s}pPr/{%s}defRPr' % (A, A)))
+            runs = paragraph.runs
+        return self.office_runs(runs, defaults)
+
+    def office_cell(self, cell):
+        paragraphs = cell.paragraphs if hasattr(cell, 'paragraphs') else cell.text_frame.paragraphs
+        inline = []
+        for index, paragraph in enumerate(paragraphs):
+            if index:
+                inline.append({'type': 'text', 'text': '\n'})
+            inline.extend(self.office_paragraph(paragraph))
+        return inline if ''.join(node['text'] for node in inline) == cell.text else None
 
     def docx(self, path):
         from docx import Document
@@ -111,6 +142,7 @@ class Extractor:
         from docx.text.paragraph import Paragraph
         from docx.oxml.ns import qn
         document = Document(path)
+        lists = WordLists(document)
 
         def images(element):
             for blip in element.xpath('.//a:blip'):
@@ -134,7 +166,9 @@ class Extractor:
                     kind = 'bullet'
                 elif 'list number' in style:
                     kind = 'ordered'
-                self.add(kind, text, inline=self.office_runs(block.runs), level=level, page=None)
+                metadata = lists.resolve(block)
+                kind = metadata.pop('kind', kind)
+                self.add(kind, text, inline=self.office_paragraph(block), level=level, page=None, **metadata)
                 math = block._p.xpath('.//m:t')
                 if math:
                     self.add('paragraph', ''.join(node.text or '' for node in math), page=None)
@@ -148,8 +182,9 @@ class Extractor:
                     cells = []
                     for cell in row.cells:
                         text = cell.text if cell._tc not in seen else ''
+                        inline = self.office_cell(cell) if cell._tc not in seen else None
                         seen.add(cell._tc)
-                        cells.append({'text': text})
+                        cells.append({'text': text, 'inline': inline})
                     rows.append(cells)
                 self.add('table', rows=rows, page=None)
                 images(block._tbl)
@@ -163,7 +198,7 @@ class Extractor:
                 seen_parts.add(part.part.partname)
                 for paragraph in part.paragraphs:
                     if paragraph.text.strip():
-                        self.add('paragraph', paragraph.text, page=None)
+                        self.add('paragraph', paragraph.text, inline=self.office_paragraph(paragraph), page=None)
                         self.warnings.append('header_footer')
 
     def pptx(self, path):
@@ -186,15 +221,22 @@ class Extractor:
                         cells = []
                         for cell in row.cells:
                             if not cell.is_spanned:
-                                cells.append({'text': cell.text, 'colspan': cell.span_width, 'rowspan': cell.span_height})
+                                cells.append({'text': cell.text, 'inline': self.office_cell(cell), 'colspan': cell.span_width, 'rowspan': cell.span_height})
                         rows.append(cells)
                     self.add('table', rows=rows, page=page, bbox=bbox)
                 elif shape.has_text_frame:
                     for paragraph in shape.text_frame.paragraphs:
                         kind = 'heading' if shape == title else 'paragraph'
-                        if kind == 'paragraph' and paragraph._p.xpath('./a:pPr/a:buChar'):
-                            kind = 'bullet'
-                        self.add(kind, paragraph.text, inline=self.office_runs(paragraph.runs), page=page, bbox=bbox)
+                        metadata = {'list_id': f'{page}-{shape.shape_id}', 'list_level': paragraph.level}
+                        numbering = paragraph._p.find('{%s}pPr/{%s}buAutoNum' % (A, A))
+                        if kind == 'paragraph':
+                            if numbering is not None:
+                                kind = 'ordered'
+                                if numbering.get('startAt'):
+                                    metadata['list_start'] = int(numbering.get('startAt'))
+                            elif paragraph._p.xpath('./a:pPr/a:buChar'):
+                                kind = 'bullet'
+                        self.add(kind, paragraph.text, inline=self.office_paragraph(paragraph), page=page, bbox=bbox, **metadata)
                 elif shape.has_chart:
                     self.warnings.append('chart_not_imported')
         for page, slide in enumerate(presentation.slides, 1):
@@ -241,6 +283,9 @@ class Extractor:
         self.elements.sort(key=lambda element: element.get('page') or 1)
         for index, element in enumerate(self.elements, 1):
             element['source_id'] = f'e{index}'
+        if Path(path).is_file():
+            from .pdf_style import enrich_pdf_colors
+            enrich_pdf_colors(path, self.elements)
 
     def require_ocr(self):
         try:
@@ -289,7 +334,18 @@ class Extractor:
                 self.add('table', rows=rows, **extra)
             elif hasattr(item, 'text'):
                 label = item.label.value
-                self.add(labels.get(label, 'paragraph'), item.text, ocr=ocr, **extra)
+                kind = labels.get(label, 'paragraph')
+                if label == 'list_item' and getattr(item, 'enumerated', False):
+                    kind = 'ordered'
+                    import re
+                    marker = re.match(r'\D*(\d+)', getattr(item, 'marker', ''))
+                    if marker:
+                        extra['list_start'] = int(marker[1])
+                formatting = getattr(item, 'formatting', None)
+                if formatting and item.text:
+                    marks = [{'type': name} for name in ('bold', 'italic', 'underline') if getattr(formatting, name, False)]
+                    extra['inline'] = [{'type': 'text', 'text': item.text, 'marks': marks}]
+                self.add(kind, item.text, ocr=ocr, **extra)
 
     def extract(self, path):
         try:
