@@ -20,5 +20,3 @@ class ImportListSerializer(serializers.Serializer):
 
 class ImportUploadSerializer(serializers.Serializer):
     file = serializers.FileField()
-    use_ai = serializers.BooleanField(default=True)
-    force_ocr = serializers.BooleanField(default=False)

@@ -58,9 +58,7 @@ class ImportListView(APIView):
             if active:
                 return Response({'detail': 'Импорт этой лекции уже выполняется.', 'job': job_data(active)}, status=409)
             job = LectureImportJob(lesson=lesson, created_by=request.user, size=upload.size,
-                                   original_name=Path(upload.name.replace('\\', '/')).name[:255],
-                                   use_ai=request.data.get('use_ai', 'true') == 'true',
-                                   force_ocr=request.data.get('force_ocr', 'false') == 'true')
+                                   original_name=Path(upload.name.replace('\\', '/')).name[:255])
             job.source.save(job.original_name, upload, save=False)
             try:
                 job.save()

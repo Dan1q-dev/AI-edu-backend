@@ -5,6 +5,7 @@ import zlib
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import skipUnless
+from unittest.mock import patch
 from django.test import SimpleTestCase
 
 
@@ -44,7 +45,7 @@ class RealLectureOcrTests(SimpleTestCase):
 
     def extract(self, source, folder):
         from apps.lessons.importing.parser import Extractor
-        return Extractor(folder, {'max_pages': 100, 'languages': 'rus+eng+kaz', 'force_ocr': False}).extract(source)
+        return Extractor(folder, {'max_pages': 100, 'languages': 'rus+eng+kaz'}).extract(source)
 
     def test_digital_and_scanned_pdf_use_real_docling_and_tesseract(self):
         for scanned in (False, True):
@@ -56,6 +57,15 @@ class RealLectureOcrTests(SimpleTestCase):
                 self.assertIn('Optical lesson 42' if scanned else 'Digital lecture 42', text)
                 self.assertTrue(any(asset['is_page'] for asset in result['assets']))
                 self.assertTrue(any(element.get('page') == 1 for element in result['elements']))
+                self.assertEqual('ocr_review' in result['warnings'], scanned)
+
+    def test_digital_pdf_never_requires_tesseract(self):
+        with TemporaryDirectory() as folder:
+            source = Path(folder) / 'digital.pdf'
+            make_pdf(source)
+            with patch('apps.lessons.importing.parser.Extractor.require_ocr', side_effect=AssertionError('Digital PDFs must not start OCR')):
+                result = self.extract(source, folder)
+            self.assertIn('Digital lecture 42', ' '.join(item['text'] for item in result['elements']))
 
     def test_word_embedded_screenshot_uses_real_tesseract(self):
         from docx import Document

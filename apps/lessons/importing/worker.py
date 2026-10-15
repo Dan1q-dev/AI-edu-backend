@@ -60,7 +60,7 @@ def run_child(job, folder):
     with job.source.open('rb') as incoming, source.open('wb') as target:
         shutil.copyfileobj(incoming, target)
     config = {'source': str(source), 'output': folder, 'languages': settings.LECTURE_IMPORT_OCR_LANGUAGES,
-              'max_pages': settings.LECTURE_IMPORT_MAX_PAGES, 'force_ocr': job.force_ocr, 'use_ai': job.use_ai,
+              'max_pages': settings.LECTURE_IMPORT_MAX_PAGES,
               'ai': {'base_url': settings.AI_BASE_URL, 'api_key': settings.AI_API_KEY,
                      'model': settings.AI_MODEL, 'timeout': min(settings.AI_TIMEOUT_SECONDS, 60)}}
     process = subprocess.Popen([sys.executable, '-X', 'utf8', '-m', 'apps.lessons.importing.parser'],

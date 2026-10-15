@@ -3,7 +3,8 @@ import json
 from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from types import SimpleNamespace
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import TransactionTestCase, SimpleTestCase, override_settings
@@ -58,7 +59,7 @@ class LectureImportTests(TransactionTestCase):
         self.draft_url = f'/api/v1/lessons/{self.lesson.short_id}/draft/'
 
     def enqueue(self, kind='docx'):
-        response = self.client.post(self.url, {'file': office_file(kind), 'use_ai': 'false'}, format='multipart')
+        response = self.client.post(self.url, {'file': office_file(kind)}, format='multipart')
         self.assertEqual(response.status_code, 202, response.data)
         return LectureImportJob.objects.get(pk=response.data['id'])
 
@@ -154,7 +155,7 @@ class LectureImportTests(TransactionTestCase):
 class StructureTests(SimpleTestCase):
     def test_langchain_only_changes_roles_with_exact_source_coverage(self):
         from apps.lessons.importing.structure import classify
-        elements = [{'source_id': 'e1', 'kind': 'paragraph', 'text': 'Source 42 <script> untouched'}]
+        elements = [{'source_id': 'e1', 'kind': 'paragraph', 'text': 'Source 42 <script> untouched', 'needs_structure_review': True}]
         config = {'base_url': 'http://example.test', 'api_key': '', 'model': 'test', 'timeout': 1}
         with patch('apps.lessons.importing.structure.call_api', return_value={'payload': {'elements': [{'source_id': 'e1', 'kind': 'quote'}]}}):
             self.assertEqual(classify(elements, config), [])
@@ -164,6 +165,88 @@ class StructureTests(SimpleTestCase):
         with patch('apps.lessons.importing.structure.call_api', return_value={'payload': {'elements': [{'source_id': 'invented', 'kind': 'heading'}]}}):
             self.assertEqual(classify(elements, config), ['ai_unavailable'])
         self.assertEqual(elements[0]['kind'], 'paragraph')
+
+    def test_trusted_native_structure_does_not_call_ai(self):
+        from apps.lessons.importing.structure import classify
+        elements = [{'source_id': 'e1', 'kind': 'heading', 'text': 'Native heading'},
+                    {'source_id': 'e2', 'kind': 'paragraph', 'text': 'An ordinary paragraph with no ambiguous formatting.'},
+                    {'source_id': 'e3', 'kind': 'quote', 'text': 'An explicit quotation.'}]
+        with patch('apps.lessons.importing.structure.call_api') as transport:
+            self.assertEqual(classify(elements, {'base_url': 'http://example.test', 'model': 'test'}), [])
+        transport.assert_not_called()
+
+    def test_only_ambiguous_elements_are_sent_to_ai(self):
+        from apps.lessons.importing.structure import classify
+        elements = [{'source_id': 'e1', 'kind': 'heading', 'text': 'Native heading'},
+                    {'source_id': 'e2', 'kind': 'paragraph', 'text': 'Normal body paragraph.'},
+                    {'source_id': 'e3', 'kind': 'paragraph', 'text': 'POSSIBLE HEADING', 'inline': [{'text': 'POSSIBLE HEADING', 'marks': [{'type': 'bold'}]}]}]
+        with patch('apps.lessons.importing.structure.call_api', return_value={'payload': {'elements': [{'source_id': 'e3', 'kind': 'heading', 'level': 3}]}}) as transport:
+            self.assertEqual(classify(elements, {'base_url': 'http://example.test', 'api_key': '', 'model': 'test', 'timeout': 1}), [])
+        request = json.loads(transport.call_args.kwargs['messages'][1]['content'])
+        self.assertEqual([item['source_id'] for item in request], ['e3'])
+        self.assertEqual(elements[1]['kind'], 'paragraph')
+        self.assertEqual(elements[2]['kind'], 'heading')
+        self.assertEqual(elements[2]['text'], 'POSSIBLE HEADING')
+
+    def test_ocr_is_selected_only_for_images_and_damaged_text(self):
+        from apps.lessons.importing.quality import pdf_ocr_mode, page_ranges
+        self.assertIsNone(pdf_ocr_mode('Digital source text'))
+        self.assertIsNone(pdf_ocr_mode('', has_objects=False))
+        self.assertEqual(pdf_ocr_mode('Digital text plus screenshot', has_images=True), 'regions')
+        self.assertEqual(pdf_ocr_mode('', has_images=True), 'full')
+        self.assertEqual(pdf_ocr_mode('\ufffd\ufffd\ufffd broken encoding'), 'full')
+        self.assertEqual(page_ranges([2, 3, 5, 8, 9]), [(2, 3), (5, 5), (8, 9)])
+
+    def test_pdf_fallback_combines_native_and_ocr_pages_in_source_order(self):
+        from apps.lessons.importing.parser import Extractor
+        native = Mock(); native.convert.return_value = SimpleNamespace(status=SimpleNamespace(value='success'), document='native')
+        ocr = Mock(); ocr.convert.return_value = SimpleNamespace(status=SimpleNamespace(value='success'), document='ocr')
+        with TemporaryDirectory() as folder:
+            extractor = Extractor(folder, {'max_pages': 100, 'languages': 'rus+eng+kaz'})
+            def consume(document, pages, ocr=False):
+                for page in sorted(pages):
+                    extractor.add('paragraph', f'{document} page {page}', page=page, ocr=ocr)
+            with patch('apps.lessons.importing.parser.pdf_page_modes', return_value={1: None, 2: 'full', 3: None}), \
+                    patch('apps.lessons.importing.parser.pdf_converter', side_effect=[native, ocr]) as factory, \
+                    patch.object(extractor, 'require_ocr'), patch.object(extractor, 'pdf_items', side_effect=consume):
+                result = extractor.extract(Path(folder) / 'mixed.pdf')
+            self.assertEqual([entry['text'] for entry in result['elements']], ['native page 1', 'ocr page 2', 'native page 3'])
+            self.assertEqual([entry['source_id'] for entry in result['elements']], ['e1', 'e2', 'e3'])
+            self.assertEqual(factory.call_args_list[0].args, ('rus+eng+kaz',))
+            self.assertEqual(factory.call_args_list[1].args, ('rus+eng+kaz', 'full'))
+            ocr.convert.assert_called_once_with(Path(folder) / 'mixed.pdf', page_range=(2, 2))
+
+    def test_failed_native_conversion_automatically_retries_with_full_ocr(self):
+        from apps.lessons.importing.parser import Extractor
+        native = Mock(); native.convert.side_effect = ValueError('native conversion failed')
+        ocr = Mock(); ocr.convert.return_value = SimpleNamespace(status=SimpleNamespace(value='success'), document='ocr')
+        with TemporaryDirectory() as folder:
+            extractor = Extractor(folder, {'max_pages': 100, 'languages': 'eng'})
+            with patch('apps.lessons.importing.parser.pdf_page_modes', return_value={1: None}), \
+                    patch('apps.lessons.importing.parser.pdf_converter', side_effect=[native, ocr]), \
+                    patch.object(extractor, 'require_ocr'), \
+                    patch.object(extractor, 'pdf_items', side_effect=lambda *args, **kwargs: extractor.add('paragraph', 'Recovered source', page=1, ocr=True)):
+                result = extractor.extract(Path(folder) / 'digital.pdf')
+            self.assertEqual(result['elements'][0]['text'], 'Recovered source')
+            self.assertIn('ocr_review', result['warnings'])
+            ocr.convert.assert_called_once_with(Path(folder) / 'digital.pdf', page_range=(1, 1))
+
+    def test_real_mixed_pdf_keeps_digital_pages_out_of_ocr(self):
+        import pypdfium2 as pdfium
+        from PIL import Image
+        from apps.lessons.test_import_ocr import make_pdf
+        from apps.lessons.importing.parser import pdf_page_modes
+        with TemporaryDirectory() as folder:
+            digital, scan, mixed = [Path(folder) / filename for filename in ('digital.pdf', 'scan.pdf', 'mixed.pdf')]
+            make_pdf(digital)
+            make_pdf(scan, Image.new('RGB', (64, 64), 'white'))
+            with pdfium.PdfDocument.new() as combined, pdfium.PdfDocument(digital) as first, pdfium.PdfDocument(scan) as second:
+                combined.import_pages(first)
+                combined.import_pages(second)
+                combined.save(mixed)
+            self.assertEqual(pdf_page_modes(mixed, max_pages=10), {1: None, 2: 'full'})
+            with self.assertRaises(ImportFailure):
+                pdf_page_modes(mixed, max_pages=1)
 
     def test_oversized_element_is_rejected_without_truncation(self):
         with self.assertRaises(ImportFailure):

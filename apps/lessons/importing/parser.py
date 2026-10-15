@@ -2,16 +2,51 @@
 import io
 import json
 import subprocess
+from contextlib import closing
 from pathlib import Path
 from PIL import Image
 from .document import ImportFailure
+from .quality import pdf_ocr_mode, uncertain_elements, page_ranges
+
+
+def pdf_page_modes(path, max_pages):
+    import pypdfium2 as pdfium
+    modes = {}
+    with pdfium.PdfDocument(path) as pdf:
+        if len(pdf) > max_pages:
+            raise ImportFailure('document_limit')
+        for index in range(len(pdf)):
+            with closing(pdf[index]) as page:
+                with closing(page.get_textpage()) as textpage:
+                    text = textpage.get_text_range()
+                has_objects = has_images = False
+                for obj in page.get_objects():
+                    has_objects = True
+                    has_images = has_images or obj.type == pdfium.raw.FPDF_PAGEOBJ_IMAGE
+                modes[index + 1] = pdf_ocr_mode(text, has_images, has_objects)
+    return modes
+
+
+def pdf_converter(languages, mode=None):
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractCliOcrOptions, OcrMode
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+    options = PdfPipelineOptions()
+    options.do_ocr = mode is not None
+    options.do_table_structure = True
+    options.generate_picture_images = True
+    options.generate_page_images = True
+    options.images_scale = 1.5
+    options.ocr_options = TesseractCliOcrOptions(lang=languages.split('+'), mode=OcrMode.FULL_PAGE if mode == 'full' else OcrMode.DEFAULT)
+    return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)})
 
 
 class Extractor:
-    def __init__(self, output, options):
+    def __init__(self, output, options, on_stage=None):
         self.output, self.options = Path(output), options
         self.elements, self.assets, self.warnings = [], [], []
         self.characters = 0
+        self.on_stage = on_stage or (lambda value: None)
 
     def add(self, kind, text='', **extra):
         if not text and kind not in ('image', 'table'):
@@ -42,6 +77,7 @@ class Extractor:
         self.assets.append({'key': key, 'file': path.name, 'page': page, 'is_page': False})
         self.add('image', image=key, page=page, bbox=bbox)
         if ocr:
+            self.on_stage('ocr')
             try:
                 result = subprocess.run(['tesseract', str(path), 'stdout', '-l', self.options['languages'], '--psm', '3'],
                                         capture_output=True, timeout=60, encoding='utf-8')
@@ -54,6 +90,7 @@ class Extractor:
             if result.stdout.strip():
                 self.add('paragraph', result.stdout.strip(), page=page, bbox=bbox, ocr=True)
                 self.warnings.append('image_ocr')
+            self.on_stage('parsing')
 
     def office_runs(self, runs):
         inline = []
@@ -169,39 +206,62 @@ class Extractor:
         self.warnings.append('office_layout')
 
     def pdf(self, path):
-        import pypdfium2 as pdfium
-        from docling.datamodel.base_models import InputFormat
-        from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractCliOcrOptions, OcrMode
-        from docling.document_converter import DocumentConverter, PdfFormatOption
-        from docling_core.types.doc import PictureItem, TableItem
-        with pdfium.PdfDocument(path) as pdf:
-            if len(pdf) > self.options['max_pages']:
-                raise ImportFailure('document_limit')
-        options = PdfPipelineOptions()
-        options.do_ocr = True
-        options.do_table_structure = True
-        options.generate_picture_images = True
-        options.generate_page_images = True
-        options.images_scale = 1.5
+        modes = pdf_page_modes(path, self.options['max_pages'])
+        page_count = len(modes)
+        # Preserve the PDF's own text and layout first. OCR is a second pass on
+        # scans, pictures or a damaged text layer, never a global user switch.
+        native = None
+        try:
+            converted = pdf_converter(self.options['languages']).convert(path)
+            if converted.status.value == 'success':
+                native = converted.document
+        except ImportError:
+            raise
+        except Exception:
+            pass
+        if native is None:
+            modes = {page: 'full' for page in range(1, page_count + 1)}
+        needs_ocr = {page for page, mode in modes.items() if mode}
+        if native is not None:
+            self.pdf_items(native, set(range(1, page_count + 1)) - needs_ocr)
+        if needs_ocr:
+            self.require_ocr()
+            self.on_stage('ocr')
+            for mode in ('regions', 'full'):
+                ranges = page_ranges(page for page in needs_ocr if modes[page] == mode)
+                if not ranges:
+                    continue
+                ocr_converter = pdf_converter(self.options['languages'], mode)
+                for start, end in ranges:
+                    converted = ocr_converter.convert(path, page_range=(start, end))
+                    if converted.status.value != 'success':
+                        raise ImportFailure('invalid_document')
+                    self.pdf_items(converted.document, set(range(start, end + 1)), ocr=True)
+            self.warnings.append('ocr_review')
+        self.elements.sort(key=lambda element: element.get('page') or 1)
+        for index, element in enumerate(self.elements, 1):
+            element['source_id'] = f'e{index}'
+
+    def require_ocr(self):
         try:
             languages = subprocess.run(['tesseract', '--list-langs'], capture_output=True, encoding='utf-8', timeout=10)
         except (FileNotFoundError, subprocess.TimeoutExpired):
             raise ImportFailure('ocr_unavailable') from None
         if languages.returncode or not set(self.options['languages'].split('+')).issubset(set(languages.stdout.split())):
             raise ImportFailure('ocr_unavailable')
-        options.ocr_options = TesseractCliOcrOptions(lang=self.options['languages'].split('+'), mode=OcrMode.FULL_PAGE if self.options['force_ocr'] else OcrMode.DEFAULT)
-        converted = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)}).convert(path)
-        if converted.status.value != 'success':
-            raise ImportFailure('invalid_document')
-        document = converted.document
+
+    def pdf_items(self, document, pages, ocr=False):
+        from docling_core.types.doc import PictureItem, TableItem
         for page_no, page in document.pages.items():
-            if page.image:
+            if page_no in pages and page.image:
                 key = f'page-{page_no}'
                 page.image.pil_image.save(self.output / f'{key}.png', 'PNG')
                 self.assets.append({'key': key, 'file': f'{key}.png', 'page': page_no, 'is_page': True})
         labels = {'title': 'heading', 'section_header': 'heading', 'code': 'code', 'formula': 'formula', 'list_item': 'bullet'}
         for item, _ in document.iterate_items():
             provenance = item.prov[0] if getattr(item, 'prov', []) else None
+            if (provenance.page_no if provenance else 1) not in pages:
+                continue
             extra = {'page': provenance.page_no if provenance else None,
                      'bbox': provenance.bbox.model_dump(mode='json') if provenance else None}
             if isinstance(item, PictureItem):
@@ -229,8 +289,7 @@ class Extractor:
                 self.add('table', rows=rows, **extra)
             elif hasattr(item, 'text'):
                 label = item.label.value
-                self.add(labels.get(label, 'paragraph'), item.text, **extra)
-        self.warnings.append('ocr_review')
+                self.add(labels.get(label, 'paragraph'), item.text, ocr=ocr, **extra)
 
     def extract(self, path):
         try:
@@ -251,13 +310,16 @@ def process(config):
     def stage(value):
         (output / 'stage').write_text(value, encoding='utf-8')
     stage('parsing')
-    result = Extractor(output, config).extract(config['source'])
+    result = Extractor(output, config, on_stage=stage).extract(config['source'])
     # Separate extraction and classification stages without returning raw HTML.
     (output / 'extracted.json').write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
-    if config['use_ai']:
-        stage('structuring')
-        from .structure import classify
-        result['warnings'].extend(classify(result['elements'], config['ai']))
+    if uncertain_elements(result['elements']):
+        if config['ai'].get('base_url') and config['ai'].get('model'):
+            stage('structuring')
+            from .structure import classify
+            result['warnings'].extend(classify(result['elements'], config['ai']))
+        else:
+            result['warnings'].append('ai_not_configured')
     stage('validating')
     from .document import to_blocks
     to_blocks(result['elements'], {asset['key']: 1 for asset in result['assets']})

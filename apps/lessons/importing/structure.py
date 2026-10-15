@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from langchain_core.runnables import RunnableLambda
 from apps.activities.workspace.ai import call_api
+from .quality import uncertain_elements
 
 
 class Classification(BaseModel):
@@ -21,7 +22,9 @@ class Classifications(BaseModel):
 def classify(elements, config):
     """Only ambiguous paragraphs go to the model. Invalid batches fall back intact."""
     warnings = []
-    candidates = [item for item in elements if item['kind'] == 'paragraph' and item.get('text')]
+    candidates = uncertain_elements(elements)
+    if not candidates:
+        return []
     if not config.get('base_url') or not config.get('model'):
         return ['ai_not_configured']
     batches, current, size = [], [], 0
