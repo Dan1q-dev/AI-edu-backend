@@ -6,11 +6,13 @@ from rest_framework import generics, serializers
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema
 from common.permissions import is_admin, IsPlatformAdmin
 from .models import LearningTrack, Course, Module, Lesson, LearningItem
+from .access import accessible_courses, can_access_item, can_access_lesson
 from .progress import course_progress, save_lecture_progress
 from .serializers import TrackSerializer, CourseSerializer, ModuleSerializer, LessonSerializer, LearningItemSerializer
-from .services import delete_content, delete_item
+from .services import delete_content, delete_item, order_module_items, set_item_positions
 
 def integer_query(request, name):
     value = request.query_params.get(name)
@@ -68,8 +70,7 @@ class CourseList(AdminWriteMixin, generics.ListCreateAPIView):
             if track_id:
                 q = q.filter(learning_track_id=track_id)
             return q
-        return q.filter(is_published=True, learning_track_id=self.request.user.learning_track_id,
-                        learning_track__is_published=True, learning_track__is_active=True)
+        return accessible_courses(self.request.user)
 
 class CourseDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = CourseSerializer
@@ -78,8 +79,7 @@ class CourseDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
         q = Course.objects.select_related('learning_track').all()
         if is_admin(self.request.user):
             return q
-        return q.filter(is_published=True, learning_track_id=self.request.user.learning_track_id,
-                        learning_track__is_published=True, learning_track__is_active=True)
+        return accessible_courses(self.request.user)
 
     def get_object(self):
         queryset = self.filter_queryset(self.get_queryset())
@@ -99,9 +99,7 @@ class ModuleList(AdminWriteMixin, generics.ListCreateAPIView):
             q = q.filter(course_id=course_id)
         if is_admin(self.request.user):
             return q
-        return q.filter(is_published=True, course__is_published=True,
-                        course__learning_track_id=self.request.user.learning_track_id,
-                        course__learning_track__is_published=True, course__learning_track__is_active=True)
+        return q.filter(is_published=True, course__in=accessible_courses(self.request.user))
 
 class ModuleDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ModuleSerializer
@@ -110,43 +108,40 @@ class ModuleDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
         q = Module.objects.select_related('course__learning_track').all()
         if is_admin(self.request.user):
             return q
-        return q.filter(is_published=True, course__is_published=True,
-                        course__learning_track_id=self.request.user.learning_track_id,
-                        course__learning_track__is_published=True, course__learning_track__is_active=True)
+        return q.filter(is_published=True, course__in=accessible_courses(self.request.user))
 
 class LessonList(AdminWriteMixin, generics.ListCreateAPIView):
     serializer_class = LessonSerializer
     def get_queryset(self):
-        q = Lesson.objects.select_related('module__course__learning_track').all()
+        q = Lesson.objects.select_related('module__course__learning_track', 'learning_item').all()
         module_id = integer_query(self.request, 'module')
         if module_id:
             q = q.filter(module_id=module_id)
         if is_admin(self.request.user):
             return q
-        return q.filter(status='PUBLISHED', module__is_published=True, module__course__is_published=True,
-                        module__course__learning_track_id=self.request.user.learning_track_id,
-                        module__course__learning_track__is_published=True, module__course__learning_track__is_active=True)
+        return q.filter(status='PUBLISHED', module__is_published=True, module__course__in=accessible_courses(self.request.user))
 
 class LessonDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = LessonSerializer
     lookup_field = 'short_id'
+
+    def get_object(self):
+        obj = super().get_object()
+        if not can_access_lesson(self.request.user, obj):
+            raise PermissionDenied('Сначала завершите предыдущий модуль')
+        return obj
     def get_queryset(self):
-        q = Lesson.objects.select_related('module__course__learning_track').all()
+        q = Lesson.objects.select_related('module__course__learning_track', 'learning_item').all()
         if is_admin(self.request.user):
             return q
-        return q.filter(status='PUBLISHED', module__is_published=True, module__course__is_published=True,
-                        module__course__learning_track_id=self.request.user.learning_track_id,
-                        module__course__learning_track__is_published=True, module__course__learning_track__is_active=True)
+        return q.filter(status='PUBLISHED', module__is_published=True, module__course__in=accessible_courses(self.request.user))
 
 
 def item_queryset(request):
-    q = LearningItem.objects.select_related('module__course__learning_track', 'lesson', 'test', 'practice')
+    q = LearningItem.objects.select_related('module__course__learning_track', 'lesson', 'test', 'practice', 'practice_version')
     if is_admin(request.user):
         return q
-    return q.filter(status='PUBLISHED', module__is_published=True, module__course__is_published=True,
-                    module__course__learning_track_id=request.user.learning_track_id,
-                    module__course__learning_track__is_published=True,
-                    module__course__learning_track__is_active=True)
+    return q.filter(status='PUBLISHED', module__is_published=True, module__course__in=accessible_courses(request.user))
 
 
 class LectureProgressInput(serializers.Serializer):
@@ -156,19 +151,58 @@ class LectureProgressInput(serializers.Serializer):
 class ItemProgressOutput(serializers.Serializer):
     progress_percent = serializers.IntegerField(min_value=0, max_value=100)
     is_completed = serializers.BooleanField()
+    is_started = serializers.BooleanField(required=False)
 
 
-class CourseProgressOutput(serializers.Serializer):
-    percent = serializers.IntegerField(min_value=0, max_value=100)
+class ResumeLearningItemOutput(serializers.Serializer):
+    short_id = serializers.CharField()
+    title = serializers.CharField()
+    type = serializers.ChoiceField(choices=LearningItem.Type.choices)
+
+
+class LearningCourseSummaryOutput(serializers.Serializer):
+    id = serializers.IntegerField()
+    short_id = serializers.CharField()
+    slug = serializers.CharField()
+    title = serializers.CharField()
+    description = serializers.CharField()
+    cover = serializers.IntegerField(allow_null=True)
+    learning_track_title = serializers.CharField(allow_null=True)
+    percent = serializers.IntegerField()
+    completed_items = serializers.IntegerField()
+    total_items = serializers.IntegerField()
+    is_started = serializers.BooleanField()
+    is_completed = serializers.BooleanField()
+    last_activity_at = serializers.DateTimeField(allow_null=True)
+    resume_learning_item = ResumeLearningItemOutput(allow_null=True)
+
+
+class CourseProgressOutput(LearningCourseSummaryOutput):
     items = serializers.DictField(child=ItemProgressOutput())
+    modules = serializers.DictField(child=serializers.DictField())
+
+
+class LearningDashboardOutput(serializers.Serializer):
+    resume_course = LearningCourseSummaryOutput(allow_null=True)
+    active_courses = LearningCourseSummaryOutput(many=True)
+    completed_courses = LearningCourseSummaryOutput(many=True)
+    available_courses = LearningCourseSummaryOutput(many=True)
+
+
+class LearningDashboardView(generics.GenericAPIView):
+    serializer_class = LearningDashboardOutput
+
+    def get(self, request):
+        if request.user.role != 'STUDENT':
+            raise PermissionDenied()
+        from .learning import learning_dashboard
+        return Response(learning_dashboard(request.user, accessible_courses(request.user)))
 
 
 class CourseProgressView(generics.GenericAPIView):
     serializer_class = CourseProgressOutput
     def get(self, request, slug):
-        courses = Course.objects.all() if is_admin(request.user) else Course.objects.filter(
-            is_published=True, learning_track_id=request.user.learning_track_id,
-            learning_track__is_published=True, learning_track__is_active=True)
+        courses = accessible_courses(request.user)
         course = courses.filter(Q(short_id=slug) | Q(slug=slug)).first()
         if not course:
             raise NotFound()
@@ -182,6 +216,8 @@ class ItemProgressView(generics.GenericAPIView):
         item = item_queryset(request).filter(short_id=short_id).first()
         if not item:
             raise NotFound()
+        if not can_access_item(request.user, item):
+            raise PermissionDenied('Сначала завершите предыдущий модуль')
         if item.type != LearningItem.Type.LECTURE:
             raise ValidationError({'detail': 'Progress can only be submitted for a lecture'})
         serializer = self.get_serializer(data=request.data)
@@ -210,6 +246,8 @@ class LearningItemList(AdminWriteMixin, generics.ListCreateAPIView):
         last_position = LearningItem.objects.filter(module=module).aggregate(Max('position'))['position__max']
         position = 0 if last_position is None else last_position + 1
         kind = serializer.validated_data['type']
+        if kind == LearningItem.Type.TEST and LearningItem.objects.filter(module=module, type=kind).exists():
+            raise ValidationError({'type': 'В модуле может быть только один тест'})
         title = serializer.validated_data['title']
         description = serializer.validated_data.get('description', '')
         if kind == LearningItem.Type.LECTURE:
@@ -221,13 +259,21 @@ class LearningItemList(AdminWriteMixin, generics.ListCreateAPIView):
             serializer.save(position=position, test=content)
         else:
             from apps.activities.models import PracticeDefinition
-            content = PracticeDefinition.objects.create(kind='PLACEHOLDER', config={})
+            content = PracticeDefinition.objects.create(title=title, description=description, created_by=self.request.user)
             serializer.save(position=position, practice=content)
+        order_module_items(module.pk)
+        serializer.instance.refresh_from_db()
 
 
 class LearningItemDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = LearningItemSerializer
     lookup_field = 'short_id'
+
+    def get_object(self):
+        obj = super().get_object()
+        if not can_access_item(self.request.user, obj):
+            raise PermissionDenied('Сначала завершите предыдущий модуль')
+        return obj
 
     def get_queryset(self):
         return item_queryset(self.request)
@@ -241,6 +287,11 @@ class LearningItemDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView)
             raise ValidationError({'module': 'Перенос между модулями пока не поддерживается'})
         if 'type' in data and data['type'] != item.type:
             raise ValidationError({'type': 'Тип элемента нельзя изменить'})
+        if item.type == 'PRACTICE':
+            if any(key in data for key in ('title', 'description')):
+                raise ValidationError({'detail': 'Редактируйте практику через /practice/draft/'})
+            if data.get('status') == 'PUBLISHED' and not item.practice_version_id:
+                raise ValidationError({'status': 'Сначала опубликуйте версию практики через /practice/draft/'})
         if 'status' in data and data['status'] == 'PUBLISHED':
             if item.type == 'LECTURE' and item.lesson.draft_data is not None:
                 raise ValidationError({'status': 'Опубликуйте черновик лекции через /draft/'})
@@ -253,15 +304,15 @@ class LearningItemDetail(AdminWriteMixin, generics.RetrieveUpdateDestroyAPIView)
             siblings = list(LearningItem.objects.filter(module=item.module).order_by('position', 'id'))
             if target < 0 or target >= len(siblings):
                 raise ValidationError({'position': 'Позиция вне модуля'})
+            if item.type == LearningItem.Type.TEST and target != len(siblings) - 1:
+                raise ValidationError({'position': 'Тест всегда должен быть последним элементом модуля'})
+            content_count = sum(member.type != LearningItem.Type.TEST for member in siblings)
+            if item.type != LearningItem.Type.TEST and target >= content_count:
+                raise ValidationError({'position': 'Лекции и практические работы должны находиться перед тестом'})
+            siblings.sort(key=lambda member: member.type == LearningItem.Type.TEST)
             siblings.remove(item)
             siblings.insert(target, item)
-            offset = len(siblings) + max(member.position for member in siblings) + 1
-            for index, member in enumerate(siblings):
-                LearningItem.objects.filter(pk=member.pk).update(position=offset + index)
-            for index, member in enumerate(siblings):
-                LearningItem.objects.filter(pk=member.pk).update(position=index)
-                if member.lesson_id:
-                    Lesson.objects.filter(pk=member.lesson_id).update(position=index)
+            set_item_positions(siblings)
             item.position = target
         updated = serializer.save(position=item.position)
         if updated.type == 'LECTURE':

@@ -57,7 +57,15 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'EXCEPTION_HANDLER': 'common.exceptions.handler',
 }
-SPECTACULAR_SETTINGS = {'TITLE': 'AI Edu API', 'VERSION': '1.0.0'}
+SPECTACULAR_SETTINGS = {'TITLE': 'AI Edu API', 'VERSION': '1.0.0',
+                        'ENUM_NAME_OVERRIDES': {'LearningItemTypeEnum': [
+                            ('LECTURE', 'Лекция'), ('TEST', 'Тест'), ('PRACTICE', 'Практика')],
+                            'ContentStatusEnum': [('DRAFT', 'Draft'), ('PUBLISHED', 'Published')],
+                            'LearningItemStatusEnum': [('DRAFT', 'Черновик'), ('PUBLISHED', 'Опубликован')],
+                            'WorkspaceMessageRoleEnum': [('user', 'User'), ('assistant', 'Assistant')],
+                            'RoleEnum': [('STUDENT', 'Student'), ('ADMIN', 'Admin')],
+                            'PracticeGradingSourceEnum': [('SELF_ASSESSMENT', 'Self Assessment'),
+                                ('AUTO_GRADING', 'Auto Grading'), ('AI_GRADING', 'Ai Grading'), ('TEACHER', 'Teacher')]}}
 LANGUAGE_CODE = 'ru-ru'
 TIME_ZONE = 'UTC'
 USE_TZ = True
@@ -84,6 +92,14 @@ AI_SERVICE_API_KEY = os.getenv('AI_SERVICE_API_KEY', '')
 AI_AVATAR_SERVICE_URL = os.getenv('AI_AVATAR_SERVICE_URL', '').rstrip('/') if DEBUG else ''
 AI_SERVICE_TIMEOUT = int(os.getenv('AI_SERVICE_TIMEOUT', '90'))
 AI_TUTOR_RATE = os.getenv('AI_TUTOR_RATE', '20/min')
+AI_BASE_URL = os.getenv('AI_BASE_URL', '').rstrip('/')
+AI_API_KEY = os.getenv('AI_API_KEY', '')
+AI_MODEL = os.getenv('AI_MODEL', '')
+if len(AI_MODEL) > 200:
+    raise RuntimeError('AI_MODEL must be at most 200 characters')
+AI_TIMEOUT_SECONDS = int(os.getenv('AI_TIMEOUT_SECONDS', '120'))
+if not 1 <= AI_TIMEOUT_SECONDS <= 600:
+    raise RuntimeError('AI_TIMEOUT_SECONDS must be between 1 and 600')
 if os.getenv('S3_ENDPOINT_URL'):
     STORAGES = {'default': {'BACKEND': 'storages.backends.s3.S3Storage', 'OPTIONS': {
         'bucket_name': os.getenv('S3_BUCKET', 'aiedu'), 'endpoint_url': os.getenv('S3_ENDPOINT_URL'),

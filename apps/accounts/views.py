@@ -59,8 +59,10 @@ class LoginView(GenericAPIView):
         login(request, user)
         return Response(UserSerializer(user).data)
 
+@method_decorator(csrf_protect, name='dispatch')
 class LogoutView(GenericAPIView):
     serializer_class = UserSerializer
+    permission_classes = [AllowAny]
     def post(self, request):
         logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)

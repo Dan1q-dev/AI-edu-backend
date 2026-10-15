@@ -9,7 +9,8 @@ class LearningItemMigrationTests(TransactionTestCase):
         latest = executor.loader.graph.leaf_nodes()
         before = [('education', '0007_lesson_draft_data') if app == 'education' else
                   ('assessments', '0001_initial') if app == 'assessments' else
-                  ('activities', '0001_initial') if app == 'activities' else (app, migration)
+                  ('activities', '0001_initial') if app == 'activities' else
+                  ('lessons', '0001_initial') if app == 'lessons' else (app, migration)
                   for app, migration in latest]
         try:
             executor.migrate(before)
@@ -44,12 +45,12 @@ class LearningItemMigrationTests(TransactionTestCase):
             from apps.assessments.models import TestAttempt
             from apps.activities.models import PracticeDefinition
             items = list(LearningItem.objects.filter(module_id=module.pk))
-            self.assertEqual([item.type for item in items], ['LECTURE', 'TEST', 'PRACTICE', 'LECTURE'])
+            self.assertEqual([item.type for item in items], ['LECTURE', 'PRACTICE', 'LECTURE', 'TEST'])
             self.assertEqual([item.position for item in items], [0, 1, 2, 3])
             self.assertEqual(items[0].short_id, first.short_id)
-            self.assertEqual(items[3].short_id, second.short_id)
-            self.assertEqual(items[1].test_id, test.pk)
-            self.assertEqual(items[2].practice_id, practice.pk)
+            self.assertEqual(items[2].short_id, second.short_id)
+            self.assertEqual(items[3].test_id, test.pk)
+            self.assertEqual(items[1].practice_id, practice.pk)
             self.assertEqual(LessonBlock.objects.get(pk=block.pk).media_id, media.pk)
             self.assertEqual(TestAttempt.objects.get(pk=attempt.pk).snapshot[0]['correct'], 'A')
             self.assertEqual(PracticeDefinition.objects.get(pk=practice.pk).config['prompt'], 'Write')

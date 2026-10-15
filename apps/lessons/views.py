@@ -5,8 +5,9 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from common.permissions import is_admin, IsPlatformAdmin
 from apps.education.access import can_access_lesson
 from apps.education.models import Lesson
-from .models import LessonBlock
-from .serializers import BlockSerializer, LessonDraftSerializer
+from apps.mediafiles.models import MediaFile
+from .models import LessonBlock, LessonAttachment
+from .serializers import AttachmentSerializer, BlockSerializer, LessonDraftSerializer
 
 
 class LessonDraftView(GenericAPIView):
@@ -16,7 +17,7 @@ class LessonDraftView(GenericAPIView):
     def get_lesson(self, request, short_id):
         if not is_admin(request.user):
             raise PermissionDenied()
-        lesson = Lesson.objects.prefetch_related('blocks').filter(short_id=short_id).first()
+        lesson = Lesson.objects.prefetch_related('blocks', 'attachments__media').filter(short_id=short_id).first()
         if not lesson:
             raise NotFound()
         return lesson
@@ -29,9 +30,10 @@ class LessonDraftView(GenericAPIView):
                 'title': lesson.title,
                 'description': lesson.description,
                 'blocks': BlockSerializer(lesson.blocks.all(), many=True).data,
+                'attachments': [attachment_data(item.media) for item in lesson.attachments.all()],
             }
         else:
-            data = {**data, 'blocks': [
+            data = {**data, 'attachments': attachment_list(data.get('attachments', [])), 'blocks': [
                 {**block, 'media_url': f"/api/v1/media/{block['media']}/" if block.get('media') else None}
                 for block in data.get('blocks', [])
             ]}
@@ -52,6 +54,14 @@ class LessonDraftView(GenericAPIView):
             raise ValidationError({'position': 'Позиции блоков должны идти подряд от нуля'})
         serializer = BlockSerializer(data=blocks, many=True)
         serializer.is_valid(raise_exception=True)
+        attachment_ids = data.get('attachments', [])
+        if not isinstance(attachment_ids, list) or len(attachment_ids) > 20:
+            raise ValidationError({'attachments': 'Можно прикрепить не более 20 файлов'})
+        attachment_ids = [item.get('media') if isinstance(item, dict) else item for item in attachment_ids]
+        if any(type(pk) is not int for pk in attachment_ids) or len(set(attachment_ids)) != len(attachment_ids):
+            raise ValidationError({'attachments': 'Некорректный список файлов'})
+        if MediaFile.objects.filter(pk__in=attachment_ids).count() != len(attachment_ids):
+            raise ValidationError({'attachments': 'Один из файлов не найден'})
         normalized_blocks = [
             {**block, 'media': block['media'].pk if block.get('media') else None}
             for block in serializer.validated_data
@@ -66,9 +76,10 @@ class LessonDraftView(GenericAPIView):
             'title': title.strip(),
             'description': description,
             'blocks': normalized_blocks,
+            'attachments': attachment_ids,
         }
         lesson.save(update_fields=['draft_data'])
-        return Response(lesson.draft_data)
+        return Response({**lesson.draft_data, 'attachments': attachment_list(attachment_ids)})
 
     @transaction.atomic
     def post(self, request, short_id):
@@ -84,6 +95,14 @@ class LessonDraftView(GenericAPIView):
             LessonBlock.objects.bulk_create([
                 LessonBlock(lesson=lesson, **block) for block in serializer.validated_data
             ])
+            attachment_ids = data.get('attachments', [])
+            if MediaFile.objects.filter(pk__in=attachment_ids).count() != len(attachment_ids):
+                raise ValidationError({'attachments': 'Один из файлов не найден'})
+            lesson.attachments.all().delete()
+            LessonAttachment.objects.bulk_create([
+                LessonAttachment(lesson=lesson, media_id=media_id, position=position)
+                for position, media_id in enumerate(attachment_ids)
+            ])
         lesson.status = Lesson.Status.PUBLISHED
         lesson.save(update_fields=['title', 'description', 'status', 'updated_at'])
         if hasattr(lesson, 'learning_item'):
@@ -93,6 +112,27 @@ class LessonDraftView(GenericAPIView):
             item.status = 'PUBLISHED'
             item.save(update_fields=['title', 'description', 'status', 'updated_at'])
         return Response({'status': lesson.status, 'title': lesson.title})
+
+
+def attachment_data(media):
+    return {'media': media.pk, 'name': media.original_name, 'size': media.size,
+            'url': f'/api/v1/media/{media.pk}/download/'}
+
+
+def attachment_list(ids):
+    media_by_id = MediaFile.objects.in_bulk(ids)
+    return [attachment_data(media_by_id[pk]) for pk in ids if pk in media_by_id]
+
+
+class AttachmentsView(GenericAPIView):
+    serializer_class = AttachmentSerializer
+    def get(self, request, short_id):
+        lesson = Lesson.objects.select_related('module__course__learning_track').filter(short_id=short_id).first()
+        if not lesson:
+            raise NotFound()
+        if not can_access_lesson(request.user, lesson):
+            raise PermissionDenied()
+        return Response([attachment_data(item.media) for item in lesson.attachments.select_related('media')])
 
 class BlocksView(GenericAPIView):
     serializer_class = BlockSerializer

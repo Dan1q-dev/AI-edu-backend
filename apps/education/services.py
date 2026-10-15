@@ -3,6 +3,26 @@ from rest_framework.exceptions import ValidationError
 from .models import LearningTrack, Course, Module, Lesson, LearningItem
 
 
+def set_item_positions(items):
+    # Move to unused positions first to avoid the per-module unique constraint.
+    if not items or all(item.position == index for index, item in enumerate(items)):
+        return
+    offset = max(item.position for item in items) + len(items) + 1
+    for index, item in enumerate(items):
+        LearningItem.objects.filter(pk=item.pk).update(position=offset + index)
+    for position, item in enumerate(items):
+        LearningItem.objects.filter(pk=item.pk).update(position=position)
+        if item.lesson_id:
+            Lesson.objects.filter(pk=item.lesson_id).update(position=position)
+        item.position = position
+
+
+def order_module_items(module_id):
+    items = list(LearningItem.objects.filter(module_id=module_id).order_by('position', 'id'))
+    items.sort(key=lambda item: item.type == LearningItem.Type.TEST)
+    set_item_positions(items)
+
+
 @transaction.atomic
 def delete_item(item):
     from apps.assessments.models import Test, TestAttempt
@@ -16,6 +36,9 @@ def delete_item(item):
         item.delete()
         test.delete()
     elif item.type == LearningItem.Type.PRACTICE and item.practice_id:
+        from .models import PracticeSubmission
+        if PracticeSubmission.objects.filter(item=item).exists():
+            raise ValidationError({'detail': 'Практика содержит попытки студентов и не может быть удалена'})
         practice = item.practice
         item.delete()
         practice.delete()
@@ -28,12 +51,9 @@ def delete_item(item):
             Test.objects.filter(lesson=lesson).update(lesson=None)
             PracticeDefinition.objects.filter(lesson=lesson).update(lesson=None)
             LessonBlock.objects.filter(lesson=lesson).delete()
+            lesson.attachments.all().delete()
             lesson.delete()
-    for position, sibling in enumerate(LearningItem.objects.filter(module_id=item.module_id).order_by('position', 'id')):
-        if sibling.position != position:
-            LearningItem.objects.filter(pk=sibling.pk).update(position=position)
-            if sibling.lesson_id:
-                Lesson.objects.filter(pk=sibling.lesson_id).update(position=position)
+    order_module_items(item.module_id)
 
 @transaction.atomic
 def delete_content(instance):
@@ -62,6 +82,8 @@ def delete_content(instance):
         if LearningItem.objects.filter(pk=item.pk).exists():
             delete_item(item)
     LessonBlock.objects.filter(lesson_id__in=ids).delete()
+    from apps.lessons.models import LessonAttachment
+    LessonAttachment.objects.filter(lesson_id__in=ids).delete()
     PracticeDefinition.objects.filter(lesson_id__in=ids).delete()
     Test.objects.filter(lesson_id__in=ids).delete()
     Lesson.objects.filter(pk__in=ids).delete()

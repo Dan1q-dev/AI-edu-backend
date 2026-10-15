@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import models
 
 class MediaFile(models.Model):
-    file = models.ImageField(upload_to='lessons/%Y/%m/')
+    file = models.FileField(upload_to='lessons/%Y/%m/')
     original_name = models.CharField(max_length=255)
     content_type = models.CharField(max_length=50)
     size = models.PositiveIntegerField()
