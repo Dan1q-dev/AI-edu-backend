@@ -1,5 +1,7 @@
 """Read Office run colors and numbering from OOXML, without rewriting source text."""
 from lxml import etree
+from functools import lru_cache
+from colorsys import rgb_to_hls, hls_to_rgb
 
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
@@ -14,7 +16,12 @@ def hex_color(value):
     return '#' + value.lower() if value and len(value) == 6 and all(c in '0123456789abcdefABCDEF' for c in value) else None
 
 
-def theme_colors(part, seen=None):
+@lru_cache(maxsize=64)
+def theme_colors(part):
+    return _theme_colors(part)
+
+
+def _theme_colors(part, seen=None):
     seen = set() if seen is None else seen
     if part in seen:
         return {}
@@ -26,7 +33,7 @@ def theme_colors(part, seen=None):
                     for node in root.findall('.//{%s}clrScheme/*' % A) if len(node)}
     for rel in part.rels.values():
         if not rel.is_external and rel.reltype.endswith(('/slideMaster', '/slideLayout')):
-            result = theme_colors(rel.target_part, seen)
+            result = _theme_colors(rel.target_part, seen)
             if result:
                 return result
     return {}
@@ -52,6 +59,10 @@ def drawing_color(container, palette):
                 kind, amount = etree.QName(transform).localname, int(transform.get('val', '100000')) / 100000
                 if kind in ('tint', 'shade'):
                     channels = [round(c + (255 - c) * amount) if kind == 'tint' else round(c * amount) for c in channels]
+                elif kind in ('lumMod', 'lumOff'):
+                    hue, lightness, saturation = rgb_to_hls(*[c / 255 for c in channels])
+                    lightness = lightness * amount if kind == 'lumMod' else lightness + amount
+                    channels = [round(c * 255) for c in hls_to_rgb(hue, min(1, max(0, lightness)), saturation)]
             return '#' + ''.join(f'{min(255, max(0, c)):02x}' for c in channels)
     return None
 
@@ -59,12 +70,13 @@ def drawing_color(container, palette):
 def run_colors(run, defaults=()):
     word = run._r.tag.startswith('{' + W + '}')
     ns = W if word else A
-    properties = [run._r.find('{%s}rPr' % ns), *defaults]
+    properties = [run._r.find('{%s}rPr' % ns)]
     if word:
         style = run.style
         while style is not None:
             properties.append(style.element.find('{%s}rPr' % W))
             style = style.base_style
+    properties.extend(defaults)
     palette = theme_colors(run.part)
     color = highlight = None
     for props in properties:
@@ -96,6 +108,27 @@ def run_colors(run, defaults=()):
     return color, highlight
 
 
+def presentation_properties(paragraph):
+    """Resolve local, textbox, layout and master paragraph defaults in priority order."""
+    properties = [paragraph._p.find('{%s}pPr' % A)]
+    frame = paragraph._parent
+    level = paragraph.level + 1
+    properties.append(frame._txBody.find('{%s}lstStyle/{%s}lvl%spPr' % (A, A, level)))
+    shape = frame._parent
+    if getattr(shape, 'is_placeholder', False):
+        layout = paragraph.part.slide_layout
+        placeholder = next((item for item in layout.placeholders if item.placeholder_format.idx == shape.placeholder_format.idx), None)
+        if placeholder is not None and placeholder.has_text_frame:
+            body = placeholder.text_frame._txBody
+            properties.extend([body.find('{%s}p/{%s}pPr' % (A, A)), body.find('{%s}lstStyle/{%s}lvl%spPr' % (A, A, level))])
+        master = layout.slide_master
+        name = str(shape.placeholder_format.type)
+        style = 'titleStyle' if 'TITLE' in name and 'SUBTITLE' not in name else 'bodyStyle' if 'BODY' in name or 'OBJECT' in name else 'otherStyle'
+        p = 'http://schemas.openxmlformats.org/presentationml/2006/main'
+        properties.append(master.element.find('{%s}txStyles/{%s}%s/{%s}lvl%spPr' % (p, p, style, A, level)))
+    return [props for props in properties if props is not None]
+
+
 class WordLists:
     def __init__(self, document):
         self.numbering = document.part.numbering_part.element
@@ -117,7 +150,9 @@ class WordLists:
                     num_id = value.get('{%s}val' % W)
                 if level is None and depth is not None:
                     level = int(depth.get('{%s}val' % W))
-        if num_id in (None, '0'):
+        if num_id == '0':
+            return {'kind': 'paragraph'}
+        if num_id is None:
             return {}
         level = min(8, max(0, level or 0))
         num = self.numbering.find('{%s}num[@{%s}numId="%s"]' % (W, W, num_id))

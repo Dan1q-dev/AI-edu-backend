@@ -9,9 +9,9 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 
-def make_pdf(path, image=None):
+def make_pdf(path, image=None, stream=None):
     """Small valid PDF fixture, without a second PDF generation dependency."""
-    stream = b'q 612 0 0 792 0 0 cm /Im1 Do Q' if image else b'BT /F1 24 Tf 50 700 Td (Digital lecture 42) Tj 0 -45 Td /F1 14 Tf (Exact source content for the course.) Tj ET'
+    stream = stream if stream is not None else (b'q 612 0 0 792 0 0 cm /Im1 Do Q' if image else b'BT /F1 24 Tf 50 700 Td (Digital lecture 42) Tj 0 -45 Td /F1 14 Tf (Exact source content for the course.) Tj ET')
     objects = [b'<< /Type /Catalog /Pages 2 0 R >>', b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
                b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> /XObject << /Im1 6 0 R >> >> /Contents 5 0 R >>',
                b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',

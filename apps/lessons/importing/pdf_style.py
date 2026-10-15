@@ -29,7 +29,10 @@ def enrich_pdf_colors(path, elements):
                     code = raw.FPDFText_GetUnicode(textpage, index)
                     if not code or chr(code).isspace():
                         continue
-                    left, bottom, right, top = textpage.get_charbox(index)
+                    try:
+                        left, bottom, right, top = textpage.get_charbox(index)
+                    except pdfium.PdfiumError:
+                        continue
                     x, y = (left + right) / 2, (bottom + top) / 2
                     channels = [ctypes.c_uint() for _ in range(4)]
                     color = None

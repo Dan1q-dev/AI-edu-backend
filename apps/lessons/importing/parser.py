@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image
 from .document import ImportFailure
 from .quality import pdf_ocr_mode, uncertain_elements, page_ranges
-from .office import W, A, WordLists, run_colors
+from .office import W, A, WordLists, run_colors, presentation_properties
 
 
 def pdf_page_modes(path, max_pages):
@@ -123,7 +123,7 @@ class Extractor:
             for item in paragraph.iter_inner_content():
                 runs.extend(item.runs if hasattr(item, 'runs') else [item])
         else:
-            defaults.append(paragraph._p.find('{%s}pPr/{%s}defRPr' % (A, A)))
+            defaults.extend(props.find('{%s}defRPr' % A) for props in presentation_properties(paragraph))
             runs = paragraph.runs
         return self.office_runs(runs, defaults)
 
@@ -228,14 +228,19 @@ class Extractor:
                     for paragraph in shape.text_frame.paragraphs:
                         kind = 'heading' if shape == title else 'paragraph'
                         metadata = {'list_id': f'{page}-{shape.shape_id}', 'list_level': paragraph.level}
-                        numbering = paragraph._p.find('{%s}pPr/{%s}buAutoNum' % (A, A))
                         if kind == 'paragraph':
-                            if numbering is not None:
-                                kind = 'ordered'
-                                if numbering.get('startAt'):
-                                    metadata['list_start'] = int(numbering.get('startAt'))
-                            elif paragraph._p.xpath('./a:pPr/a:buChar'):
-                                kind = 'bullet'
+                            for props in presentation_properties(paragraph):
+                                if props.find('{%s}buNone' % A) is not None:
+                                    break
+                                numbering = props.find('{%s}buAutoNum' % A)
+                                if numbering is not None:
+                                    kind = 'ordered'
+                                    if numbering.get('startAt'):
+                                        metadata['list_start'] = int(numbering.get('startAt'))
+                                    break
+                                if props.find('{%s}buChar' % A) is not None:
+                                    kind = 'bullet'
+                                    break
                         self.add(kind, paragraph.text, inline=self.office_paragraph(paragraph), page=page, bbox=bbox, **metadata)
                 elif shape.has_chart:
                     self.warnings.append('chart_not_imported')

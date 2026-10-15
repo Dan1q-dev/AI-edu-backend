@@ -168,6 +168,8 @@ python manage.py run_lecture_import_worker
 
 API (все endpoints только для администратора):
 
+Импорт сохраняет цвет текста и выделение фрагментов DOCX/PPTX, включая цвета темы и текст ячеек. Нумерация Word читается из OOXML, PowerPoint — из настроек абзацев и шаблона; сохраняются вложенность, начало и перезапуск списков. Для PDF цвета символов и аннотации выделения извлекаются из нативного слоя только при точном совпадении текста и области. Для текста, полученного исключительно через OCR, цвета не восстанавливаются.
+
 | Метод | Адрес | Действие |
 | --- | --- | --- |
 | GET | `lessons/{id}/imports/` | Пять последних заданий и доступность AI |
@@ -182,6 +184,8 @@ API (все endpoints только для администратора):
 ```bash
 python -m pip install -r requirements-import-core.txt
 python manage.py test apps.lessons apps.mediafiles apps.education
+# Цвета и списки на настоящих DOCX/PPTX и нативном PDF (без OCR):
+python manage.py test apps.lessons.test_import_formatting
 # Linux-образ с настоящими OCR/Docling, отдельная проверка в CI:
 docker compose run --rm -e RUN_LECTURE_OCR_TESTS=1 import-worker python manage.py test apps.lessons.test_import_ocr --noinput
 ```
