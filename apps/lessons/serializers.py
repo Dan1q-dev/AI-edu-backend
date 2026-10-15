@@ -28,6 +28,7 @@ class BlockSerializer(serializers.ModelSerializer):
 
 
 class LessonDraftSerializer(serializers.Serializer):
+    revision = serializers.IntegerField(required=False, min_value=0)
     title = serializers.CharField(max_length=200)
     description = serializers.CharField(allow_blank=True, required=False)
     blocks = BlockSerializer(many=True)

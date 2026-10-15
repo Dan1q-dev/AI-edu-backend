@@ -80,6 +80,7 @@ class Lesson(ShortIdModel):
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
     # Admin edits are staged here so autosave can never change student-visible content.
     draft_data = models.JSONField(null=True, blank=True, default=None)
+    draft_revision = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     class Meta:

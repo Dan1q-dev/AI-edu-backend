@@ -57,7 +57,25 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
+  import-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.import-worker
+    env_file: .env
+    environment:
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://minio:9000
+    depends_on:
+      backend: {condition: service_healthy}
+    volumes: [import_models:/models]
+    mem_limit: 4g
+    cpus: 2
+    init: true
+    restart: unless-stopped
 volumes:
+  import_models:
   postgres_data:
     name: ai-edu_postgres_data
   minio_data:

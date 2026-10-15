@@ -1,0 +1,4 @@
+-r requirements.txt
+-r requirements-import-core.txt
+# Heavy dependencies belong in the OCR worker, not the HTTP server.
+docling==2.139.0

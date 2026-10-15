@@ -37,13 +37,15 @@ class LessonDraftView(GenericAPIView):
                 {**block, 'media_url': f"/api/v1/media/{block['media']}/" if block.get('media') else None}
                 for block in data.get('blocks', [])
             ]}
-        return Response(data)
+        return Response({**data, 'revision': lesson.draft_revision})
 
     @transaction.atomic
     def put(self, request, short_id):
         lesson = self.get_lesson(request, short_id)
         lesson = Lesson.objects.select_for_update().get(pk=lesson.pk)
         data = request.data
+        if isinstance(data, dict) and 'revision' in data and (type(data['revision']) is not int or data['revision'] != lesson.draft_revision):
+            return Response({'detail': 'Черновик изменён в другом окне. Скопируйте свои изменения и перезагрузите страницу.', 'code': 'draft_conflict'}, status=409)
         if not isinstance(data, dict) or not isinstance(data.get('blocks'), list):
             raise ValidationError({'blocks': 'Ожидается список блоков'})
         if len(data['blocks']) > 100:
@@ -78,13 +80,16 @@ class LessonDraftView(GenericAPIView):
             'blocks': normalized_blocks,
             'attachments': attachment_ids,
         }
-        lesson.save(update_fields=['draft_data'])
-        return Response({**lesson.draft_data, 'attachments': attachment_list(attachment_ids)})
+        lesson.draft_revision += 1
+        lesson.save(update_fields=['draft_data', 'draft_revision'])
+        return Response({**lesson.draft_data, 'attachments': attachment_list(attachment_ids), 'revision': lesson.draft_revision})
 
     @transaction.atomic
     def post(self, request, short_id):
         lesson = self.get_lesson(request, short_id)
         lesson = Lesson.objects.select_for_update().get(pk=lesson.pk)
+        if isinstance(request.data, dict) and 'revision' in request.data and request.data['revision'] != lesson.draft_revision:
+            return Response({'detail': 'Черновик изменён в другом окне. Обновите страницу перед публикацией.', 'code': 'draft_conflict'}, status=409)
         if lesson.draft_data is not None:
             data = lesson.draft_data
             lesson.title = data['title']

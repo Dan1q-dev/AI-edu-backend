@@ -8,7 +8,8 @@ class Command(BaseCommand):
         parser.add_argument('--delete', action='store_true')
     def handle(self, *args, **options):
         unused = MediaFile.objects.filter(lessonblock__isnull=True, lessonattachment__isnull=True,
-                                          learningtrack__isnull=True, course__isnull=True).exclude(pk__in=draft_media_ids()).distinct()
+                                          learningtrack__isnull=True, course__isnull=True,
+                                          lecture_import_assets__isnull=True).exclude(pk__in=draft_media_ids()).distinct()
         count = unused.count()
         if options['delete']:
             for media in unused.iterator():

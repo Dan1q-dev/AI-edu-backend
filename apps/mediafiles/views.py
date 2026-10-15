@@ -136,7 +136,7 @@ class MediaView(GenericAPIView):
             raise NotFound()
         from apps.lessons.models import LessonBlock, LessonAttachment
         from apps.education.models import LearningTrack, Course
-        if (LessonBlock.objects.filter(media=media).exists() or LessonAttachment.objects.filter(media=media).exists()
+        if (media.lecture_import_assets.exists() or LessonBlock.objects.filter(media=media).exists() or LessonAttachment.objects.filter(media=media).exists()
                 or LearningTrack.objects.filter(cover=media).exists() or Course.objects.filter(cover=media).exists()
                 or media.pk in draft_media_ids()):
             raise ValidationError({'detail': 'Файл используется'})

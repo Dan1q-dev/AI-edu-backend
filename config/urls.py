@@ -10,6 +10,7 @@ from apps.mediafiles import views as mediafiles
 from apps.tutor.views import TutorChatView, TutorSpeechView, TutorTranscribeView
 from apps.activities import views as activities
 from apps.activities.workspace import views as workspace
+from apps.lessons.importing import views as lecture_imports
 
 urlpatterns = [
     path('django-admin/', admin.site.urls),
@@ -51,6 +52,9 @@ urlpatterns = [
     path('api/v1/lessons/<str:short_id>/blocks/', lessons.BlocksView.as_view()),
     path('api/v1/lessons/<str:short_id>/attachments/', lessons.AttachmentsView.as_view()),
     path('api/v1/lessons/<str:short_id>/draft/', lessons.LessonDraftView.as_view()),
+    path('api/v1/lessons/<str:short_id>/imports/', lecture_imports.ImportListView.as_view()),
+    path('api/v1/lessons/<str:short_id>/imports/<uuid:job_id>/', lecture_imports.ImportDetailView.as_view()),
+    path('api/v1/lessons/<str:short_id>/imports/<uuid:job_id>/source/', lecture_imports.ImportSourceView.as_view()),
     path('api/v1/lessons/<str:short_id>/test/', assessments.TestView.as_view()),
     path('api/v1/items/<str:short_id>/test/', assessments.ItemTestView.as_view()),
     path('api/v1/items/<str:short_id>/attempts/', assessments.ItemAttemptView.as_view()),

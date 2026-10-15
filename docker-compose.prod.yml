@@ -1,4 +1,8 @@
 services:
+  import-worker:
+    image: ${IMPORT_WORKER_IMAGE:-ai-edu-import-worker}:${IMAGE_TAG:-latest}
+    environment:
+      DEBUG: "false"
   minio-init:
     image: ${BACKEND_IMAGE:-ai-edu-backend}:${IMAGE_TAG:-latest}
   backend:
