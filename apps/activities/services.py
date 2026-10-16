@@ -22,9 +22,7 @@ def save_draft(item, user, data):
         item.practice = definition
         item.save(update_fields=['practice'])
     if definition.practice_type and definition.practice_type != data['practice_type']:
-        if definition.practice_type != 'checklist_practice' or data['practice_type'] != 'lecture_workshop':
-            raise ValidationError({'practice_type': 'Тип выбранной практики нельзя изменить'})
-        # Preserve historical versions and attempts when upgrading an old assignment.
+        # Changing the assignment must not rewrite the type of pinned versions.
         definition = PracticeDefinition.objects.create(title=item.title, created_by=user)
         item.practice = definition
         item.save(update_fields=['practice'])
