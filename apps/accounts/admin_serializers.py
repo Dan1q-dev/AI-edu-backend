@@ -12,7 +12,8 @@ from .services import reconcile_course_grants
 
 def selected_course_ids(user):
     return [grant.course_id for grant in user.course_grants.all()
-            if grant.is_active and grant.course.learning_track_id == user.learning_track_id and grant.course.is_published]
+            if grant.is_active and grant.course.deleted_at is None
+            and grant.course.learning_track_id == user.learning_track_id and grant.course.is_published]
 
 
 class CourseIDsField(serializers.ListField):
@@ -37,7 +38,8 @@ class AdminUserSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'date_joined', 'last_login']
 
     def get_accessible_course_count(self, obj) -> int:
-        if obj.role != 'STUDENT' or not obj.learning_track_id or not obj.learning_track.is_active or not obj.learning_track.is_published:
+        if (obj.role != 'STUDENT' or not obj.learning_track_id or obj.learning_track.deleted_at is not None
+                or not obj.learning_track.is_active or not obj.learning_track.is_published):
             return 0
         if obj.course_access_mode == 'CUSTOM':
             return len(selected_course_ids(obj))
@@ -54,7 +56,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         value = value.strip().lower()
-        duplicates = User.objects.filter(email__iexact=value)
+        duplicates = User.all_objects.filter(email__iexact=value)
         if self.instance:
             duplicates = duplicates.exclude(pk=self.instance.pk)
         if duplicates.exists():

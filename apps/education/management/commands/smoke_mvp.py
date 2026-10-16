@@ -8,8 +8,7 @@ from django.core.management.base import BaseCommand
 from django.test import Client
 from apps.accounts.models import User
 from apps.education.models import LearningTrack, Course, Module, Lesson
-from apps.lessons.models import LessonBlock
-from apps.assessments.models import Test, TestAttempt
+from apps.assessments.models import TestAttempt
 from apps.mediafiles.models import MediaFile
 
 class Command(BaseCommand):
@@ -76,15 +75,11 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS('MVP smoke: auth, PostgreSQL, lesson, MinIO image, test and attempt OK'))
         finally:
             if lesson:
-                TestAttempt.objects.filter(test__lesson=lesson).delete()
-                Test.objects.filter(lesson=lesson).delete()
-                LessonBlock.objects.filter(lesson=lesson).delete()
                 lesson.delete()
             if module: module.delete()
             if course: course.delete()
             if track: track.delete()
             if media:
-                media.file.delete(save=False)
                 media.delete()
             if student: student.delete()
             admin.delete()

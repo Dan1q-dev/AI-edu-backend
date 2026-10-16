@@ -1,5 +1,4 @@
 from django.db import transaction
-from rest_framework.exceptions import ValidationError
 from .models import LearningTrack, Course, Module, Lesson, LearningItem
 
 
@@ -25,72 +24,17 @@ def order_module_items(module_id):
 
 @transaction.atomic
 def delete_item(item):
-    from apps.assessments.models import Test, TestAttempt
-    from apps.activities.models import PracticeDefinition
-    from apps.lessons.models import LessonBlock
     Module.objects.select_for_update().get(pk=item.module_id)
-    if item.type == LearningItem.Type.TEST and item.test_id:
-        if TestAttempt.objects.filter(test_id=item.test_id).exists():
-            raise ValidationError({'detail': 'Тест содержит результаты студентов и не может быть удалён'})
-        test = item.test
-        item.delete()
-        test.delete()
-    elif item.type == LearningItem.Type.PRACTICE and item.practice_id:
-        from .models import PracticeSubmission
-        if PracticeSubmission.objects.filter(item=item).exists():
-            raise ValidationError({'detail': 'Практика содержит попытки студентов и не может быть удалена'})
-        practice = item.practice
-        item.delete()
-        practice.delete()
-    else:
-        lesson = item.lesson
-        if lesson and TestAttempt.objects.filter(test__lesson=lesson, test__learning_item__isnull=True).exists():
-            raise ValidationError({'detail': 'Лекция содержит результаты старого теста без отдельного элемента'})
-        item.delete()
-        if lesson:
-            Test.objects.filter(lesson=lesson).update(lesson=None)
-            PracticeDefinition.objects.filter(lesson=lesson).update(lesson=None)
-            LessonBlock.objects.filter(lesson=lesson).delete()
-            lesson.attachments.all().delete()
-            lesson.delete()
+    item.delete()
     order_module_items(item.module_id)
+
 
 @transaction.atomic
 def delete_content(instance):
-    from apps.assessments.models import TestAttempt, Test
-    from apps.lessons.models import LessonBlock
-    from apps.activities.models import PracticeDefinition
-    if isinstance(instance, Lesson):
-        lessons = [instance]
-        items = LearningItem.objects.filter(lesson=instance)
-    elif isinstance(instance, Module):
-        lessons = list(instance.lessons.all())
-        items = LearningItem.objects.filter(module=instance)
-    elif isinstance(instance, Course):
-        lessons = list(Lesson.objects.filter(module__course=instance))
-        items = LearningItem.objects.filter(module__course=instance)
-    elif isinstance(instance, LearningTrack):
-        lessons = list(Lesson.objects.filter(module__course__learning_track=instance))
-        items = LearningItem.objects.filter(module__course__learning_track=instance)
-    else:
+    if not isinstance(instance, (Lesson, Module, Course, LearningTrack)):
         raise TypeError('Unsupported content type')
-    ids = [lesson.pk for lesson in lessons]
-    if (TestAttempt.objects.filter(test__lesson_id__in=ids).exists()
-            or TestAttempt.objects.filter(test__learning_item__in=items).exists()):
-        raise ValidationError({'detail': 'Материал содержит результаты студентов и не может быть удалён'})
-    for item in list(items.order_by('type', 'id')):
-        if LearningItem.objects.filter(pk=item.pk).exists():
-            delete_item(item)
-    LessonBlock.objects.filter(lesson_id__in=ids).delete()
-    from apps.lessons.models import LessonAttachment
-    LessonAttachment.objects.filter(lesson_id__in=ids).delete()
-    PracticeDefinition.objects.filter(lesson_id__in=ids).delete()
-    Test.objects.filter(lesson_id__in=ids).delete()
-    Lesson.objects.filter(pk__in=ids).delete()
-    if isinstance(instance, (Course, LearningTrack)):
-        modules = Module.objects.filter(course=instance) if isinstance(instance, Course) else Module.objects.filter(course__learning_track=instance)
-        modules.delete()
-    if isinstance(instance, LearningTrack):
-        Course.objects.filter(learning_track=instance).delete()
-    if not isinstance(instance, Lesson):
-        instance.delete()
+    if isinstance(instance, Lesson):
+        Module.objects.select_for_update().get(pk=instance.module_id)
+    instance.delete()
+    if isinstance(instance, Lesson):
+        order_module_items(instance.module_id)

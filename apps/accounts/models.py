@@ -1,7 +1,8 @@
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from common.soft_delete import SoftDeleteManager, SoftDeleteModel
 
-class UserManager(BaseUserManager):
+class UserManager(SoftDeleteManager, BaseUserManager):
     def create_user(self, email, password=None, **extra):
         if not email:
             raise ValueError('Email is required')
@@ -14,7 +15,8 @@ class UserManager(BaseUserManager):
         extra.update(role='ADMIN', is_staff=True, is_superuser=True, is_active=True)
         return self.create_user(email, password, **extra)
 
-class User(AbstractBaseUser, PermissionsMixin):
+class User(SoftDeleteModel, AbstractBaseUser, PermissionsMixin):
+    soft_delete_updates = {'is_active': False}
     class Role(models.TextChoices):
         STUDENT = 'STUDENT'
         ADMIN = 'ADMIN'

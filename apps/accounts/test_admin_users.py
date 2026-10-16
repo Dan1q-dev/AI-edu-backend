@@ -238,7 +238,6 @@ class AdminUsersTests(TestCase):
         for record in [attempt, progress, submission, module_progress, competency]:
             record.refresh_from_db()
         self.assertEqual(progress.progress_percent, 96)
-        self.assertEqual(self.admin_client.delete(self.url).status_code, 405)
         self.assertEqual(self.patch({'is_active': True}).status_code, 200)
         self.assertIsNotNone(authenticate(email=self.student.email, password='StudentPassword123!'))
 
@@ -250,7 +249,8 @@ class AdminUsersTests(TestCase):
         url = f'/api/v1/admin/users/{system.pk}/'
         self.assertTrue(self.admin_client.get(url).data['is_protected'])
         self.assertEqual(self.admin_client.patch(url, {'is_active': False}, format='json').status_code, 400)
-        self.assertEqual(self.admin_client.delete(url).status_code, 405)
+        self.assertEqual(self.admin_client.delete(url).status_code, 400)
+        self.assertEqual(self.admin_client.delete(own).status_code, 400)
 
     def test_changing_student_to_admin_revokes_grants_without_django_privileges(self):
         self.custom([self.course.pk])

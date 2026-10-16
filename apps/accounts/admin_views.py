@@ -1,4 +1,5 @@
 from django.db.models import Count, Prefetch, Q
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework import generics
@@ -12,8 +13,9 @@ from .admin_serializers import AdminUserSerializer, AdminLearningProgressSeriali
 
 def admin_user_queryset():
     return User.objects.select_related('learning_track').prefetch_related(Prefetch('course_grants',
-        queryset=UserCourseAccess.objects.filter(is_active=True).select_related('course'))).annotate(
-        track_course_count=Count('learning_track__courses', filter=Q(learning_track__courses__is_published=True), distinct=True))
+        queryset=UserCourseAccess.objects.filter(is_active=True, course__deleted_at__isnull=True).select_related('course'))).annotate(
+        track_course_count=Count('learning_track__courses', filter=Q(learning_track__courses__is_published=True,
+            learning_track__courses__deleted_at__isnull=True, learning_track__deleted_at__isnull=True), distinct=True))
 
 
 def filter_id(params, name):
@@ -65,11 +67,20 @@ class AdminUserList(generics.ListCreateAPIView):
         return users.order_by('-date_joined', '-pk')
 
 
-class AdminUserDetail(generics.RetrieveUpdateAPIView):
+class AdminUserDetail(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsPlatformAdmin]
     serializer_class = AdminUserSerializer
-    http_method_names = ['get', 'patch', 'put', 'head', 'options']
+    http_method_names = ['get', 'patch', 'put', 'delete', 'head', 'options']
     queryset = admin_user_queryset()
+
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        instance = User.objects.select_for_update().get(pk=instance.pk)
+        if instance.pk == self.request.user.pk:
+            raise ValidationError({'detail': 'Нельзя удалить свой аккаунт'})
+        if instance.is_superuser:
+            raise ValidationError({'detail': 'Системную учётную запись нельзя удалить'})
+        instance.delete()
 
 
 class AdminUserLearningProgress(generics.ListAPIView):

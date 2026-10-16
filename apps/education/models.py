@@ -6,18 +6,20 @@ from django.utils import timezone
 from django.db.models import PROTECT
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
+from common.soft_delete import SoftDeleteModel
 
 def generate_short_id():
     # token_urlsafe(8) returns 11 chars; truncate to keep public IDs at 10 chars.
     return secrets.token_urlsafe(8)[:10]
 
-class ShortIdModel(models.Model):
+class ShortIdModel(SoftDeleteModel):
     short_id = models.CharField(max_length=10, unique=True, default=generate_short_id, editable=False)
 
     class Meta:
         abstract = True
 
 class LearningTrack(ShortIdModel):
+    soft_delete_cascade = ('courses',)
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     cover = models.ForeignKey('mediafiles.MediaFile', null=True, blank=True, on_delete=models.SET_NULL)
@@ -26,13 +28,13 @@ class LearningTrack(ShortIdModel):
     is_system = models.BooleanField(default=False, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    def delete(self, *args, **kwargs):
+    def validate_soft_delete(self):
         if self.is_system:
             raise ValidationError('Базовую траекторию нельзя удалить')
-        return super().delete(*args, **kwargs)
     def __str__(self): return self.title
 
 class Course(ShortIdModel):
+    soft_delete_cascade = ('modules',)
     learning_track = models.ForeignKey(LearningTrack, null=True, blank=True, on_delete=PROTECT, related_name='courses')
     title = models.CharField(max_length=200)
     slug = models.SlugField(max_length=220, unique=True, blank=True, allow_unicode=True)
@@ -50,7 +52,7 @@ class Course(ShortIdModel):
             base = slugify(self.title, allow_unicode=True)[:200] or 'course'
             candidate = base
             suffix = 2
-            while Course.objects.exclude(pk=self.pk).filter(slug=candidate).exists():
+            while Course.all_objects.exclude(pk=self.pk).filter(slug=candidate).exists():
                 candidate = f'{base[:210 - len(str(suffix))]}-{suffix}'
                 suffix += 1
             self.slug = candidate
@@ -58,6 +60,7 @@ class Course(ShortIdModel):
     def __str__(self): return self.title
 
 class Module(ShortIdModel):
+    soft_delete_cascade = ('items', 'lessons')
     course = models.ForeignKey(Course, on_delete=PROTECT, related_name='modules')
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -70,6 +73,16 @@ class Module(ShortIdModel):
     def __str__(self): return self.title
 
 class Lesson(ShortIdModel):
+    soft_delete_cascade = ('learning_item',)
+
+    def soft_delete_related(self):
+        yield from super().soft_delete_related()
+        # Independent test/practice items survive removal of their old lecture.
+        from apps.assessments.models import Test
+        from apps.activities.models import PracticeDefinition
+        yield from Test.objects.using(self._state.db).filter(lesson=self, learning_item__isnull=True)
+        yield from PracticeDefinition.objects.using(self._state.db).filter(lesson=self, learning_item__isnull=True)
+
     class Status(models.TextChoices):
         DRAFT = 'DRAFT'
         PUBLISHED = 'PUBLISHED'
@@ -89,6 +102,7 @@ class Lesson(ShortIdModel):
 
 
 class LearningItem(ShortIdModel):
+    soft_delete_cascade = ('lesson', 'test', 'practice')
     class Type(models.TextChoices):
         LECTURE = 'LECTURE', 'Лекция'
         TEST = 'TEST', 'Тест'
@@ -113,7 +127,7 @@ class LearningItem(ShortIdModel):
 
     class Meta:
         ordering = ['position', 'id']
-        constraints = [models.UniqueConstraint(fields=['module', 'position'], name='unique_learning_item_position')]
+        constraints = [models.UniqueConstraint(fields=['module', 'position'], condition=models.Q(deleted_at__isnull=True), name='unique_learning_item_position')]
 
     def __str__(self): return self.title
 

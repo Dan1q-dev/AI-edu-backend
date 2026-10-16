@@ -1,5 +1,6 @@
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 from .models import User
 from apps.education.models import LearningTrack
 
@@ -16,6 +17,7 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'email', 'role', 'course_access_mode', 'date_joined']
 
 class RegisterSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(validators=[UniqueValidator(queryset=User.all_objects.all(), lookup='iexact')])
     password = serializers.CharField(write_only=True, trim_whitespace=False)
     learning_track = serializers.PrimaryKeyRelatedField(queryset=LearningTrack.objects.filter(is_active=True, is_published=True))
     class Meta:

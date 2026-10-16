@@ -52,7 +52,7 @@ class QuestionsView(GenericAPIView):
 class AttemptView(GenericAPIView):
     serializer_class = AttemptSerializer
     def get(self, request, short_id):
-        test = Test.objects.select_related('lesson__module__course__learning_track').filter(lesson__short_id=short_id).first()
+        test = Test.objects.select_related('lesson__module__course__learning_track').filter(lesson__short_id=short_id, lesson__deleted_at__isnull=True).first()
         if not test: raise NotFound()
         if not is_admin(request.user) and (not test.is_published or not can_access_test(request.user, test)):
             raise NotFound()
@@ -63,7 +63,7 @@ class AttemptView(GenericAPIView):
         return paginator.get_paginated_response(AttemptSerializer(page, many=True).data)
 
     def post(self, request, short_id):
-        test = Test.objects.filter(lesson__short_id=short_id).first()
+        test = Test.objects.filter(lesson__short_id=short_id, lesson__deleted_at__isnull=True).first()
         if not test: raise NotFound()
         if not isinstance(request.data, dict): raise ValidationError({'answers': 'Ожидается объект'})
         attempt = submit_attempt(test.id, request.user, request.data.get('answers'))

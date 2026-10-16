@@ -58,9 +58,10 @@ class LearningItemFlowTests(TestCase):
         question = public.data['questions'][0]
         answer = [{'question': question['id'], 'option': question['options'][0]['id']}]
         self.assertEqual(self.student_client.post(f"/api/v1/items/{test['short_id']}/attempts/", {'answers': answer}, format='json').status_code, 201)
-        self.assertEqual(self.admin_client.delete(f"/api/v1/items/{test['short_id']}/").status_code, 400)
+        self.assertEqual(self.admin_client.delete(f"/api/v1/items/{test['short_id']}/").status_code, 204)
+        self.assertTrue(TestAttempt.objects.filter(test_id=test['test']).exists())
         self.assertEqual([row['type'] for row in self.student_client.get('/api/v1/items/').data['results']],
-                         ['LECTURE', 'PRACTICE', 'TEST'])
+                         ['LECTURE', 'PRACTICE'])
         other_track = LearningTrack.objects.create(title='Other', is_published=True)
         outsider = User.objects.create_user(email='item-outsider@example.test', password='Password1234!', learning_track=other_track)
         outsider_client = APIClient()

@@ -139,8 +139,10 @@ class PlatformFlowTests(TestCase):
         self.assertEqual(attempt.test_version, 1)
         self.assertEqual(attempt.snapshot[0]['correct'], 'Four')
         self.assertEqual(attempt.snapshot[0]['options'], review['options'])
-        self.assertEqual(self.call(self.admin_client, 'delete', f'/api/v1/lessons/{self.lesson.short_id}/').status_code, 400)
-        self.assertTrue(Lesson.objects.filter(pk=self.lesson.pk).exists())
+        self.assertEqual(self.call(self.admin_client, 'delete', f'/api/v1/lessons/{self.lesson.short_id}/').status_code, 204)
+        self.assertFalse(Lesson.objects.filter(pk=self.lesson.pk).exists())
+        self.assertIsNotNone(Lesson.all_objects.get(pk=self.lesson.pk).deleted_at)
+        self.assertEqual(TestAttempt.objects.get(pk=attempt.pk).snapshot[0]['correct'], 'Four')
 
     def test_review_distinguishes_options_with_identical_text(self):
         self.lesson.status = 'PUBLISHED'; self.lesson.save()

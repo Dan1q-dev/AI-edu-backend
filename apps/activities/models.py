@@ -3,9 +3,11 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.utils import timezone
+from common.soft_delete import SoftDeleteModel
 
 
-class PracticeDefinition(models.Model):
+class PracticeDefinition(SoftDeleteModel):
+    soft_delete_cascade = ('learning_item',)
     # Legacy fields are retained for lossless upgrades, not used by the engine.
     lesson = models.ForeignKey('education.Lesson', null=True, blank=True, on_delete=models.PROTECT, related_name='practices')
     kind = models.CharField(max_length=100, blank=True)

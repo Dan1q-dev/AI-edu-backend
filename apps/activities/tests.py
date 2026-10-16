@@ -171,9 +171,10 @@ class PracticeEngineTests(TestCase):
         self.assertEqual(self.client.post(self.path + 'start/').status_code, 403)
         self.assertEqual(self.client.get(self.path + 'history/').status_code, 403)
 
-    def test_deletion_with_history_is_rejected(self):
+    def test_deletion_with_history_archives_content_and_keeps_results(self):
         self.publish()
         submit_checklist(self.client, self.item, [True] * 4)
-        self.assertEqual(self.admin_client.delete(f'/api/v1/items/{self.item.short_id}/').status_code, 400)
-        self.assertEqual(self.admin_client.delete(f'/api/v1/modules/{self.module.short_id}/').status_code, 400)
+        self.assertEqual(self.admin_client.delete(f'/api/v1/items/{self.item.short_id}/').status_code, 204)
+        self.assertEqual(self.client.get(self.path).status_code, 404)
+        self.assertEqual(self.admin_client.delete(f'/api/v1/modules/{self.module.short_id}/').status_code, 204)
         self.assertEqual(PracticeResult.objects.count(), 1)

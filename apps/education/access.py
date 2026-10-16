@@ -10,7 +10,7 @@ def accessible_courses(user):
     if not user.is_authenticated or not user.is_active or user.role != 'STUDENT' or not user.learning_track_id:
         return courses.none()
     courses = courses.filter(is_published=True, learning_track_id=user.learning_track_id,
-        learning_track__is_published=True, learning_track__is_active=True)
+        learning_track__is_published=True, learning_track__is_active=True, learning_track__deleted_at__isnull=True)
     if user.course_access_mode == 'CUSTOM':
         from apps.accounts.models import UserCourseAccess
         courses = courses.filter(pk__in=UserCourseAccess.objects.filter(user=user, is_active=True).values('course_id'))
@@ -18,9 +18,13 @@ def accessible_courses(user):
 
 
 def can_access_course(user, course):
+    if course.deleted_at is not None:
+        return False
     return is_admin(user) or accessible_courses(user).filter(pk=course.pk).exists()
 
 def can_access_lesson(user, lesson):
+    if lesson.deleted_at is not None or lesson.module.deleted_at is not None:
+        return False
     if is_admin(user):
         return True
     course = lesson.module.course
@@ -29,6 +33,8 @@ def can_access_lesson(user, lesson):
 
 
 def can_access_item(user, item):
+    if item.deleted_at is not None or item.module.deleted_at is not None:
+        return False
     if is_admin(user):
         return True
     course = item.module.course
@@ -37,6 +43,8 @@ def can_access_item(user, item):
 
 
 def can_access_test(user, test):
+    if test.deleted_at is not None:
+        return False
     item = test.learning_item if hasattr(test, 'learning_item') else None
     if item:
         return can_access_item(user, item)

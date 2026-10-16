@@ -1,7 +1,8 @@
 from django.conf import settings
 from django.db import models
+from common.soft_delete import SoftDeleteModel
 
-class MediaFile(models.Model):
+class MediaFile(SoftDeleteModel):
     file = models.FileField(upload_to='lessons/%Y/%m/')
     original_name = models.CharField(max_length=255)
     content_type = models.CharField(max_length=50)

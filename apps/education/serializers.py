@@ -20,7 +20,7 @@ class CourseSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'learning_track': 'Выберите траекторию обучения'})
         slug = attrs.get('slug')
         if slug:
-            matches = Course.objects.filter(slug=slug)
+            matches = Course.all_objects.filter(slug=slug)
             if self.instance:
                 matches = matches.exclude(pk=self.instance.pk)
             if matches.exists():

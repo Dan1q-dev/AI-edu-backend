@@ -3,7 +3,7 @@ from apps.mediafiles.models import MediaFile
 from apps.mediafiles.usage import draft_media_ids
 
 class Command(BaseCommand):
-    help = 'Show or delete media files not referenced by published content or lesson drafts'
+    help = 'Show or soft-delete unused media, preserving files and archived content references'
     def add_arguments(self, parser):
         parser.add_argument('--delete', action='store_true')
     def handle(self, *args, **options):
@@ -13,6 +13,5 @@ class Command(BaseCommand):
         count = unused.count()
         if options['delete']:
             for media in unused.iterator():
-                media.file.delete(save=False)
                 media.delete()
         self.stdout.write(f'{count} unused files' + (' deleted' if options['delete'] else ' found; use --delete to remove'))

@@ -1,7 +1,9 @@
 from django.conf import settings
 from django.db import models
+from common.soft_delete import SoftDeleteModel
 
-class Test(models.Model):
+class Test(SoftDeleteModel):
+    soft_delete_cascade = ('learning_item',)
     lesson = models.OneToOneField('education.Lesson', null=True, blank=True, on_delete=models.PROTECT, related_name='test')
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
