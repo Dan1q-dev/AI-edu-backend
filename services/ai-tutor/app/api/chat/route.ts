@@ -29,6 +29,8 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+
+// new comment
 const encoder = new TextEncoder();
 
 type ChatRequestBody = {
