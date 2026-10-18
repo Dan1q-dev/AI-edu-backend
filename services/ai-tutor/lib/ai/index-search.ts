@@ -81,6 +81,7 @@ export async function retrieveIndexedCourseChunks(params: {
   courseId?: string | null;
   courseVersionId?: string | null;
   topK?: number;
+  signal?: AbortSignal;
 }) {
   const version = await resolveCourseIndexVersion({
     courseId: params.courseId ?? null,
@@ -95,7 +96,7 @@ export async function retrieveIndexedCourseChunks(params: {
   const queryEmbeddingResponse = await params.client.embeddings.create({
     model: EMBEDDING_MODEL,
     input: params.query,
-  });
+  }, { signal: params.signal });
   const queryVector = queryEmbeddingResponse.data[0]?.embedding;
   if (!queryVector) {
     return {

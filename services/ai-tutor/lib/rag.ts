@@ -118,6 +118,7 @@ function keywordScore(query: string, chunkText: string): number {
 
 async function getChunkEmbeddings(
   client: OpenAI,
+  signal?: AbortSignal,
 ): Promise<{ vectors: number[][]; usageTokens: number; cacheHit: boolean }> {
   const chunks = await buildLectureChunks();
 
@@ -140,7 +141,7 @@ async function getChunkEmbeddings(
   const response = await client.embeddings.create({
     model: EMBEDDING_MODEL,
     input: chunks.map((chunk) => chunk.text),
-  });
+  }, { signal });
 
   const vectors = response.data.map((item) => item.embedding);
   cachedChunkEmbeddings = {
@@ -196,6 +197,7 @@ export async function buildCustomChunks(text: string, maxChunkChars = 520): Prom
 async function getCustomChunkEmbeddings(
   client: OpenAI,
   chunks: LectureChunk[],
+  signal?: AbortSignal,
 ): Promise<{ vectors: number[][]; usageTokens: number; cacheHit: boolean }> {
   if (chunks.length === 0) {
     return { vectors: [], usageTokens: 0, cacheHit: false };
@@ -204,7 +206,7 @@ async function getCustomChunkEmbeddings(
   const response = await client.embeddings.create({
     model: EMBEDDING_MODEL,
     input: chunks.map((chunk) => chunk.text),
-  });
+  }, { signal });
 
   const vectors = response.data.map((item) => item.embedding);
 
@@ -220,6 +222,7 @@ export async function retrieveRelevantChunksDetailed(
   userQuery: string,
   topK = DEFAULT_TOP_K,
   customContent?: string,
+  signal?: AbortSignal,
 ): Promise<{
   chunks: RankedChunk[];
   diagnostics: RetrievalDiagnostics;
@@ -243,13 +246,13 @@ export async function retrieveRelevantChunksDetailed(
   }
 
   const chunkEmbeddings = customContent
-    ? await getCustomChunkEmbeddings(client, chunks)
-    : await getChunkEmbeddings(client);
+    ? await getCustomChunkEmbeddings(client, chunks, signal)
+    : await getChunkEmbeddings(client, signal);
 
   const queryEmbeddingResponse = await client.embeddings.create({
     model: EMBEDDING_MODEL,
     input: userQuery,
-  });
+  }, { signal });
 
   const queryVector = queryEmbeddingResponse.data[0]?.embedding;
   if (!queryVector) {
