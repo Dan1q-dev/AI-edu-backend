@@ -24,9 +24,20 @@ export const runtime = 'nodejs';
 
 const CHAT_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
 const MAX_HISTORY_MESSAGES = Number(process.env.AI_MAX_HISTORY_MESSAGES ?? 12);
+const PROVIDER_TIMEOUT_MS = Number(process.env.AI_PROVIDER_TIMEOUT_MS ?? 60000);
+const PROVIDER_MAX_RETRIES = Number(process.env.AI_PROVIDER_MAX_RETRIES ?? 2);
+
+if (!Number.isInteger(PROVIDER_TIMEOUT_MS) || PROVIDER_TIMEOUT_MS < 1 || PROVIDER_TIMEOUT_MS > 600000) {
+  throw new Error('AI_PROVIDER_TIMEOUT_MS must be an integer between 1 and 600000');
+}
+if (!Number.isInteger(PROVIDER_MAX_RETRIES) || PROVIDER_MAX_RETRIES < 0 || PROVIDER_MAX_RETRIES > 5) {
+  throw new Error('AI_PROVIDER_MAX_RETRIES must be an integer between 0 and 5');
+}
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  timeout: PROVIDER_TIMEOUT_MS,
+  maxRetries: PROVIDER_MAX_RETRIES,
 });
 
 
@@ -319,7 +330,7 @@ export async function POST(req: Request) {
       response: error instanceof Error ? error.message : 'retrieval_failed',
       usage: makeNoAnswerUsage(0),
     });
-    return jsonError('РќРµ СѓРґР°Р»РѕСЃСЊ РІС‹РїРѕР»РЅРёС‚СЊ retrieval РґР»СЏ С‚РµРєСѓС‰РµРіРѕ Р·Р°РїСЂРѕСЃР°.', 502, {
+    return jsonError('Retrieval is temporarily unavailable. Please try again.', 502, {
       code: 'retrieval_failed',
     });
   }
@@ -434,9 +445,11 @@ export async function POST(req: Request) {
           instructions: prompt.instructions,
           input: prompt.input,
           stream: true,
-        });
+          store: false,
+        }, { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
 
         let fullAnswer = '';
+        let responseCompleted = false;
         let usageChunk: {
           input_tokens?: number;
           output_tokens?: number;
@@ -451,9 +464,15 @@ export async function POST(req: Request) {
               sendSseEvent(controller, 'chunk', { text: token });
             }
           } else if (event.type === 'response.completed') {
+            responseCompleted = true;
             const completed = event as { type: string; response: { usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } } };
             usageChunk = completed.response?.usage ?? null;
           }
+        }
+
+        // A closed transport is not proof that the provider finished the answer.
+        if (!responseCompleted) {
+          throw new Error('Provider stream ended before response.completed');
         }
 
         const cleanedAnswer = sanitizeAssistantText(fullAnswer);
@@ -528,7 +547,7 @@ export async function POST(req: Request) {
       } catch (error) {
         console.error('Chat stream error:', error);
         const errorMessage =
-          'РћС€РёР±РєР° РїСЂРё РѕР±СЂР°С‰РµРЅРёРё Рє РјРѕРґРµР»Рё. РџСЂРѕРІРµСЂСЊС‚Рµ РєР»СЋС‡, Р»РёРјРёС‚С‹ API Рё РїРѕРІС‚РѕСЂРёС‚Рµ Р·Р°РїСЂРѕСЃ.';
+          'The model response could not be completed. Please try again.';
         sendSseEvent(controller, 'error', {
           code: 'chat_stream_failed',
           message: errorMessage,
