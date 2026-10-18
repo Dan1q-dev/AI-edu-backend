@@ -757,10 +757,10 @@ export function resolveCourseIndexVersion(params: {
                  CASE WHEN c.active_version_id = v.id THEN 1 ELSE 0 END as is_active
           FROM course_index_versions v
           JOIN courses c ON c.course_id = v.course_id
-          WHERE v.id = ? AND v.api_key_hash = ?
+          WHERE v.id = ? AND v.api_key_hash = ? AND (? IS NULL OR v.course_id = ?)
         `,
       )
-      .get(params.versionId, params.apiKeyHash) as
+      .get(params.versionId, params.apiKeyHash, params.courseId ?? null, params.courseId ?? null) as
       | {
           id: string;
           course_id: string;
