@@ -41,7 +41,6 @@ const client = new OpenAI({
 });
 
 
-// new comment
 const encoder = new TextEncoder();
 
 type ChatRequestBody = {
