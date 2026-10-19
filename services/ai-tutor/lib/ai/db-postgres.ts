@@ -591,7 +591,7 @@ export async function listCourseIndexVersions(courseId: string, apiKeyHash: stri
 export async function resolveCourseIndexVersion(params: { courseId?: string | null; versionId?: string | null; apiKeyHash: string }) {
   if (params.versionId) {
     const row = await prisma.courseIndexVersion.findFirst({
-      where: { id: params.versionId, apiKeyHash: params.apiKeyHash },
+      where: { id: params.versionId, apiKeyHash: params.apiKeyHash, ...(params.courseId ? { courseId: params.courseId } : {}) },
     });
     if (!row) {
       return null;

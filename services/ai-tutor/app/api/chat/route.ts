@@ -24,6 +24,10 @@ export const runtime = 'nodejs';
 
 const CHAT_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
 const MAX_HISTORY_MESSAGES = Number(process.env.AI_MAX_HISTORY_MESSAGES ?? 12);
+const configuredChatTimeout = Number(process.env.AI_CHAT_TIMEOUT_MS ?? 120000);
+const CHAT_TIMEOUT_MS = Number.isFinite(configuredChatTimeout) && configuredChatTimeout > 0
+  ? configuredChatTimeout
+  : 120000;
 const PROVIDER_TIMEOUT_MS = Number(process.env.AI_PROVIDER_TIMEOUT_MS ?? 60000);
 const PROVIDER_MAX_RETRIES = Number(process.env.AI_PROVIDER_MAX_RETRIES ?? 2);
 
@@ -62,7 +66,7 @@ function validateMessages(messages: InputMessage[] | undefined) {
   if (!Array.isArray(messages) || messages.length === 0) {
     return {
       ok: false as const,
-      response: jsonError('РџРµСЂРµРґР°Р№С‚Рµ РЅРµРїСѓСЃС‚РѕР№ РјР°СЃСЃРёРІ messages.', 400),
+      response: jsonError('Передайте непустой массив messages.', 400),
     };
   }
 
@@ -78,7 +82,7 @@ function validateMessages(messages: InputMessage[] | undefined) {
   if (!sanitizedMessages.length) {
     return {
       ok: false as const,
-      response: jsonError('РќРµ РЅР°Р№РґРµРЅРѕ РІР°Р»РёРґРЅС‹С… СЃРѕРѕР±С‰РµРЅРёР№.', 400),
+      response: jsonError('Не найдено валидных сообщений.', 400),
     };
   }
 
@@ -111,23 +115,23 @@ export async function POST(req: Request) {
     await maybeRunDbMaintenance();
   } catch (error) {
     console.error('AI database init error:', error);
-    return jsonError('РҐСЂР°РЅРёР»РёС‰Рµ AI-РјРѕРґСѓР»СЏ РЅРµРґРѕСЃС‚СѓРїРЅРѕ.', 503);
+    return jsonError('Хранилище AI-модуля недоступно.', 503);
   }
 
   if (!process.env.OPENAI_API_KEY) {
-    return jsonError('OPENAI_API_KEY РЅРµ РЅР°СЃС‚СЂРѕРµРЅ РЅР° СЃРµСЂРІРµСЂРµ.', 500);
+    return jsonError('OPENAI_API_KEY не настроен на сервере.', 500);
   }
 
   let body: ChatRequestBody;
   try {
     body = (await req.json()) as ChatRequestBody;
   } catch {
-    return jsonError('РўРµР»Рѕ Р·Р°РїСЂРѕСЃР° РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ РєРѕСЂСЂРµРєС‚РЅС‹Рј JSON.', 400);
+    return jsonError('Тело запроса должно быть корректным JSON.', 400);
   }
 
   const sessionId = String(body.session_id ?? body.sessionId ?? '').trim();
   if (!sessionId) {
-    return jsonError('РџРѕР»Рµ session_id РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ.', 400);
+    return jsonError('Поле session_id обязательно.', 400);
   }
 
   const inputMessages =
@@ -142,7 +146,7 @@ export async function POST(req: Request) {
   const sanitizedMessages = validated.sanitizedMessages;
   const latestUserMessage = [...sanitizedMessages].reverse().find((msg) => msg.role === 'user');
   if (!latestUserMessage) {
-    return jsonError('РџРѕСЃР»РµРґРЅРµРµ СЃРѕРѕР±С‰РµРЅРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РЅРµ РЅР°Р№РґРµРЅРѕ.', 400);
+    return jsonError('Последнее сообщение пользователя не найдено.', 400);
   }
 
   const answerLanguage = detectSupportedLanguage(latestUserMessage.content);
@@ -160,11 +164,11 @@ export async function POST(req: Request) {
     .map((msg) => msg.content);
   const historyChainGuardrail =
     priorUserMessages.some((message) =>
-      /РёРіРЅРѕСЂРёСЂСѓ(Р№|Р№С‚Рµ)|СЂР°СЃРєСЂРѕР№\s+(СЃРёСЃС‚РµРјРЅ[Р°-СЏС‘У™С–ТЈТ“ТЇТ±Т›У©Т»]*\s+)?(РїСЂРѕРјРїС‚|РёРЅСЃС‚СЂСѓРєС†)|ignore\s+previous\s+instructions|reveal\s+(the\s+)?system\s+prompt/i.test(
+      /игнориру(й|йте)|раскрой\s+(системн[а-яёәіңғүұқөһ]*\s+)?(промпт|инструкц)|ignore\s+previous\s+instructions|reveal\s+(the\s+)?system\s+prompt/i.test(
         message,
       ),
     ) &&
-    /(РїСЂРµРґС‹РґСѓС‰[Р°-СЏС‘У™С–ТЈТ“ТЇТ±Т›У©Т»]*|РїСЂРѕС€Р»[Р°-СЏС‘У™С–ТЈТ“ТЇТ±Т›У©Т»]*|СЂР°РЅСЊС€Рµ|above|earlier|previous|that task|С‚Сѓ\s+Р·Р°РґР°С‡[Р°-СЏС‘У™С–ТЈТ“ТЇТ±Т›У©Т»]*)/i.test(
+    /(предыдущ[а-яёәіңғүұқөһ]*|прошл[а-яёәіңғүұқөһ]*|раньше|above|earlier|previous|that task|ту\s+задач[а-яёәіңғүұқөһ]*)/i.test(
       latestUserMessage.content,
     );
   const evaluatedGuardrails = evaluateGuardrails(latestUserMessage.content, {
@@ -176,7 +180,7 @@ export async function POST(req: Request) {
         reasons: ['history_prompt_injection_chain'],
         category: 'prompt_injection' as const,
         code: 'prompt_injection' as const,
-        message: 'Р-Р°РїСЂРѕСЃ РѕС‚РєР»РѕРЅРµРЅ: РѕР±РЅР°СЂСѓР¶РµРЅР° РїРѕРїС‹С‚РєР° РїСЂРѕРґРѕР»Р¶РёС‚СЊ СЂР°РЅРµРµ Р·Р°РґР°РЅРЅСѓСЋ РёРЅСЉРµРєС†РёРѕРЅРЅСѓСЋ РёРЅСЃС‚СЂСѓРєС†РёСЋ.',
+        message: 'Запрос отклонен: обнаружена попытка продолжить ранее заданную инъекционную инструкцию.',
         injection_score: 0.95,
         blocked_stage: 'moderation' as const,
       }
@@ -210,8 +214,8 @@ export async function POST(req: Request) {
   } catch (error) {
     const message =
       error instanceof Error && error.message === 'session ownership mismatch'
-        ? 'РЎРµСЃСЃРёСЏ РїСЂРёРЅР°РґР»РµР¶РёС‚ РґСЂСѓРіРѕРјСѓ API-РєР»РёРµРЅС‚Сѓ.'
-        : 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕС…СЂР°РЅРёС‚СЊ СЃРѕСЃС‚РѕСЏРЅРёРµ РґРёР°Р»РѕРіР°.';
+        ? 'Сессия принадлежит другому API-клиенту.'
+        : 'Не удалось сохранить состояние диалога.';
     return jsonError(message, error instanceof Error && error.message === 'session ownership mismatch' ? 403 : 503);
   }
 
@@ -257,6 +261,45 @@ export async function POST(req: Request) {
 
   await reserveQuotaRequest(apiKeyHash, requestEventId, estimateTokens(latestUserMessage.content));
 
+  const upstreamAbort = new AbortController();
+  let clientCancelled = false;
+  let timedOut = false;
+  let streamClosed = false;
+  let finalization: Promise<void> | null = null;
+  const cancelForClient = () => {
+    clientCancelled = true;
+    upstreamAbort.abort();
+  };
+  req.signal.addEventListener('abort', cancelForClient, { once: true });
+  if (req.signal.aborted) cancelForClient();
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    upstreamAbort.abort();
+  }, CHAT_TIMEOUT_MS);
+  const cleanup = () => {
+    clearTimeout(timeout);
+    req.signal.removeEventListener('abort', cancelForClient);
+  };
+  const finalizeOnce = (params: Parameters<typeof finalizeRequestEvent>[0]) => {
+    if (!finalization) finalization = finalizeRequestEvent(params);
+    return finalization;
+  };
+  const finalizeFailure = (status: number, response: string) => finalizeOnce({
+    id: requestEventId,
+    status,
+    guardrailBlocked: false,
+    guardrailReasons: [],
+    injectionScore: 0,
+    blockedStage: null,
+    retrievalQuery: retrieval?.diagnostics.retrieval_query,
+    retrievedChunkIds: retrieval?.chunks.map((chunk) => chunk.id),
+    retrievalScores: retrieval?.diagnostics.scores,
+    retrievalFallbackUsed: retrieval?.diagnostics.fallback_used,
+    prompt: JSON.stringify(body),
+    response,
+    usage: makeNoAnswerUsage(retrieval?.embeddingTokens ?? 0),
+  });
+
   let retrieval: Awaited<ReturnType<typeof retrieveRelevantChunksDetailed>> | NonNullable<Awaited<ReturnType<typeof retrieveIndexedCourseChunks>>>;
   let sources: ReturnType<typeof buildSourceItems>;
   try {
@@ -270,7 +313,7 @@ export async function POST(req: Request) {
     const lessonContent = typeof body.lesson_content === 'string' ? body.lesson_content.trim() : null;
 
     retrieval = lessonContent
-      ? await retrieveRelevantChunksDetailed(client, retrievalQuery, 6, lessonContent)
+      ? await retrieveRelevantChunksDetailed(client, retrievalQuery, 6, lessonContent, upstreamAbort.signal)
       : (await retrieveIndexedCourseChunks({
           client,
           apiKeyHash,
@@ -278,6 +321,7 @@ export async function POST(req: Request) {
           courseId,
           courseVersionId,
           topK: 6,
+          signal: upstreamAbort.signal,
         })) ?? emptyRetrieval(retrievalQuery);
     sources = buildSourceItems(
       retrieval.chunks.map((chunk) => ({
@@ -298,7 +342,7 @@ export async function POST(req: Request) {
 
     const quotaCheck = await checkQuotaBudget(apiKeyHash, estimatedPromptTokens + retrieval.embeddingTokens);
     if (!quotaCheck.allowed) {
-      await finalizeRequestEvent({
+      await finalizeOnce({
         id: requestEventId,
         status: quotaCheck.status,
         guardrailBlocked: false,
@@ -314,24 +358,16 @@ export async function POST(req: Request) {
         usage: makeNoAnswerUsage(retrieval.embeddingTokens),
       });
 
+      cleanup();
       return jsonError(quotaCheck.message, quotaCheck.status, { code: quotaCheck.code });
     }
   } catch (error) {
-    console.error('Chat retrieval error:', error);
-    await finalizeRequestEvent({
-      id: requestEventId,
-      status: 502,
-      guardrailBlocked: false,
-      guardrailReasons: [],
-      injectionScore: 0,
-      blockedStage: null,
-      prompt: JSON.stringify(body),
-      response: error instanceof Error ? error.message : 'retrieval_failed',
-      usage: makeNoAnswerUsage(0),
-    });
-    return jsonError('Retrieval is temporarily unavailable. Please try again.', 502, {
-      code: 'retrieval_failed',
-    });
+    const status = clientCancelled ? 499 : timedOut ? 504 : 502;
+    const code = clientCancelled ? 'client_cancelled' : timedOut ? 'chat_timeout' : 'retrieval_failed';
+    if (!clientCancelled && !timedOut) console.error('Chat retrieval error:', error);
+    await finalizeFailure(status, code);
+    cleanup();
+    return jsonError(timedOut ? 'Превышено время ожидания ответа.' : 'Не удалось выполнить retrieval для текущего запроса.', status, { code });
   }
 
   const stream = new ReadableStream({
@@ -341,7 +377,17 @@ export async function POST(req: Request) {
         reasons: [] as string[],
       };
 
+      const emit = (event: string, data: Record<string, unknown>) => {
+        if (clientCancelled || streamClosed) throw new Error('client_cancelled');
+        try {
+          sendSseEvent(controller, event, data);
+        } catch (error) {
+          cancelForClient();
+          throw error;
+        }
+      };
       try {
+        upstreamAbort.signal.throwIfAborted();
         if (isIdentityQuestion(latestUserMessage.content)) {
           const text = defaultIdentityMessage(answerLanguage);
           const usage = makeNoAnswerUsage(retrieval.embeddingTokens);
@@ -354,15 +400,15 @@ export async function POST(req: Request) {
             language: answerLanguage,
           });
           await consumeQuota(apiKeyHash, usage);
-          sendSseEvent(controller, 'chunk', { text });
-          sendSseEvent(controller, 'done', {
+          emit('chunk', { text });
+          emit('done', {
             sources: [],
             citations: [],
             locateSnippet: null,
             usage,
             guardrails: guardrailInfo,
           });
-          await finalizeRequestEvent({
+          await finalizeOnce({
             id: requestEventId,
             status: 200,
             guardrailBlocked: false,
@@ -377,11 +423,10 @@ export async function POST(req: Request) {
             response: text,
             usage,
           });
-          controller.close();
           return;
         }
 
-        sendSseEvent(controller, 'meta', {
+        emit('meta', {
           retrieved_count: retrieval.chunks.length,
           sources_preview: buildSourcesPreview(
             retrieval.chunks.map((chunk) => ({
@@ -405,15 +450,15 @@ export async function POST(req: Request) {
             language: answerLanguage,
           });
           await consumeQuota(apiKeyHash, usage);
-          sendSseEvent(controller, 'chunk', { text });
-          sendSseEvent(controller, 'done', {
+          emit('chunk', { text });
+          emit('done', {
             sources: [],
             citations: [],
             locateSnippet: null,
             usage,
             guardrails: guardrailInfo,
           });
-          await finalizeRequestEvent({
+          await finalizeOnce({
             id: requestEventId,
             status: 200,
             guardrailBlocked: false,
@@ -428,7 +473,6 @@ export async function POST(req: Request) {
             response: text,
             usage,
           });
-          controller.close();
           return;
         }
 
@@ -445,10 +489,10 @@ export async function POST(req: Request) {
           input: prompt.input,
           stream: true,
           store: false,
-        }, { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
+        }, { signal: AbortSignal.any([upstreamAbort.signal, AbortSignal.timeout(PROVIDER_TIMEOUT_MS)]) });
 
+        let completed = false;
         let fullAnswer = '';
-        let responseCompleted = false;
         let usageChunk: {
           input_tokens?: number;
           output_tokens?: number;
@@ -456,23 +500,23 @@ export async function POST(req: Request) {
         } | null = null;
 
         for await (const event of responseStream) {
+          upstreamAbort.signal.throwIfAborted();
           if (event.type === 'response.output_text.delta') {
             const token = (event as { type: string; delta: string }).delta;
             if (token) {
               fullAnswer += token;
-              sendSseEvent(controller, 'chunk', { text: token });
+              emit('chunk', { text: token });
             }
           } else if (event.type === 'response.completed') {
-            responseCompleted = true;
-            const completed = event as { type: string; response: { usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } } };
-            usageChunk = completed.response?.usage ?? null;
+            completed = true;
+            const completedEvent = event as { type: string; response: { usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } } };
+            usageChunk = completedEvent.response?.usage ?? null;
+          } else if (event.type === 'response.failed' || event.type === 'response.incomplete') {
+            throw new Error('incomplete_provider_stream');
           }
         }
-
-        // A closed transport is not proof that the provider finished the answer.
-        if (!responseCompleted) {
-          throw new Error('Provider stream ended before response.completed');
-        }
+        upstreamAbort.signal.throwIfAborted();
+        if (!completed) throw new Error('incomplete_provider_stream');
 
         const cleanedAnswer = sanitizeAssistantText(fullAnswer);
         const outputGuardrail = evaluateAssistantOutput(cleanedAnswer || fullAnswer);
@@ -484,7 +528,7 @@ export async function POST(req: Request) {
           guardrailInfo.reasons = outputGuardrail.reasons;
         }
         const hasNoAnswerPhrase =
-          /РІ РјР°С‚РµСЂРёР°Р»Р°С… Р»РµРєС†РёРё СЌС‚РѕРіРѕ РЅРµС‚|РґУ™СЂС–СЃ РјР°С‚РµСЂРёР°Р»РґР°СЂС‹РЅРґР°.*Р¶РѕТ›|not covered in the lecture materials/i.test(
+          /в материалах лекции этого нет|дәріс материалдарында.*жоқ|not covered in the lecture materials/i.test(
             finalAnswer,
           );
         const locateQuery = `${latestUserMessage.content}\n${cleanedAnswer}`;
@@ -518,7 +562,7 @@ export async function POST(req: Request) {
         });
         await consumeQuota(apiKeyHash, usage);
 
-        sendSseEvent(controller, 'done', {
+        emit('done', {
           sources: hasNoAnswerPhrase || outputGuardrail.blocked ? [] : sources,
           citations: hasNoAnswerPhrase || outputGuardrail.blocked ? [] : retrieval.chunks.map((chunk) => chunk.id),
           locateSnippet,
@@ -526,7 +570,7 @@ export async function POST(req: Request) {
           guardrails: guardrailInfo,
         });
 
-        await finalizeRequestEvent({
+        await finalizeOnce({
           id: requestEventId,
           status: 200,
           guardrailBlocked: outputGuardrail.blocked,
@@ -542,33 +586,31 @@ export async function POST(req: Request) {
           usage,
         });
 
-        controller.close();
       } catch (error) {
-        console.error('Chat stream error:', error);
-        const errorMessage =
-          'The model response could not be completed. Please try again.';
-        sendSseEvent(controller, 'error', {
-          code: 'chat_stream_failed',
-          message: errorMessage,
-          retryable: true,
-        });
-        await finalizeRequestEvent({
-          id: requestEventId,
-          status: 500,
-          guardrailBlocked: false,
-          guardrailReasons: [],
-          injectionScore: 0,
-          blockedStage: null,
-          retrievalQuery: retrieval.diagnostics.retrieval_query,
-          retrievedChunkIds: retrieval.chunks.map((chunk) => chunk.id),
-          retrievalScores: retrieval.diagnostics.scores,
-          retrievalFallbackUsed: retrieval.diagnostics.fallback_used,
-          prompt: JSON.stringify(body),
-          response: error instanceof Error ? error.message : errorMessage,
-          usage: makeNoAnswerUsage(retrieval.embeddingTokens),
-        });
-        controller.close();
+        const status = clientCancelled ? 499 : timedOut ? 504 : 500;
+        const code = timedOut ? 'chat_timeout' : 'chat_stream_failed';
+        const errorMessage = timedOut
+          ? 'Превышено время ожидания ответа. Повторите запрос.'
+          : 'Ошибка при обращении к модели. Проверьте ключ, лимиты API и повторите запрос.';
+        if (!clientCancelled && !timedOut) console.error('Chat stream error:', error);
+        await finalizeFailure(status, clientCancelled ? 'client_cancelled' : error instanceof Error ? error.message : errorMessage);
+        if (!clientCancelled && !streamClosed) {
+          try { emit('error', { code, message: errorMessage, retryable: true }); }
+          catch { /* A downstream disconnect must not trigger another write. */ }
+        }
+      } finally {
+        cleanup();
+        if (!clientCancelled && !streamClosed) {
+          try { controller.close(); } catch { /* The downstream may already be closed. */ }
+        }
+        streamClosed = true;
       }
+    },
+    async cancel() {
+      streamClosed = true;
+      cancelForClient();
+      try { await finalizeFailure(499, 'client_cancelled'); }
+      finally { cleanup(); }
     },
   });
 
