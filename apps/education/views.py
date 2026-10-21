@@ -168,6 +168,8 @@ class LearningCourseSummaryOutput(serializers.Serializer):
     description = serializers.CharField()
     cover = serializers.IntegerField(allow_null=True)
     learning_track_title = serializers.CharField(allow_null=True)
+    certificate_enabled = serializers.BooleanField()
+    certificate_hours = serializers.IntegerField()
     percent = serializers.IntegerField()
     completed_items = serializers.IntegerField()
     total_items = serializers.IntegerField()

@@ -97,13 +97,13 @@ def submit_attempt(test_id, user, answers):
     learning_item = test.learning_item if hasattr(test, 'learning_item') else None
     adaptive = bool(learning_item and learning_item.module.course.adaptive_learning_enabled)
     practice = None
-    if adaptive:
+    if adaptive or (learning_item and learning_item.module.course.certificate_enabled):
         from apps.education.adaptive import prepare_module_attempt
         practice = prepare_module_attempt(user, learning_item)
     if test.max_attempts is not None and TestAttempt.objects.filter(test=test, user=user).count() >= test.max_attempts:
         raise ValidationError({'attempts': 'Лимит попыток исчерпан'})
     questions = list(test.questions.prefetch_related('options'))
-    if adaptive and not questions:
+    if (adaptive or (learning_item and learning_item.module.course.certificate_enabled)) and not questions:
         raise ValidationError({'detail': 'В итоговом тесте ещё нет вопросов.'})
     if not isinstance(answers, list) or len(answers) != len(questions):
         raise ValidationError({'answers': 'Ответьте на все вопросы'})

@@ -71,8 +71,10 @@ def lesson_context(user, context_type, context_id):
         item = LearningItem.objects.select_related('module__course__learning_track', 'lesson').filter(short_id=context_id).first()
         if not item or not can_access_item(user, item):
             raise NotFound()
+        if item.type == LearningItem.Type.PRACTICE:
+            return practice_context(user, item)
         if item.type != LearningItem.Type.LECTURE or not item.lesson_id:
-            raise ValidationError({'detail': 'Тьютор доступен на странице лекции.'})
+            raise ValidationError({'detail': 'Тьютор доступен в лекциях и практических работах, но не во время теста.'})
         lesson = item.lesson
     else:
         lesson = Lesson.objects.select_related('module__course__learning_track').filter(short_id=context_id).first()
@@ -99,3 +101,30 @@ def lesson_context(user, context_type, context_id):
     if len(content) > 120000:
         raise ValidationError({'detail': 'Материал слишком большой для одного диалога. Разделите лекцию на части.'})
     return lesson, course, content
+
+
+def practice_context(user, item):
+    from apps.activities.services import current_submission
+    submission = current_submission(user, item)
+    version = submission.practice_version if submission else item.practice_version
+    if not version or version.status != 'PUBLISHED':
+        raise ValidationError({'detail': 'Практическая работа пока не опубликована.'})
+    course = item.module.course
+    fragments = [f'Курс: {course.title}', f'Модуль: {item.module.title}',
+                 f'Практическая работа: {version.title}', block_text(version.description)]
+    # Only student-visible fields; never include reference solutions or test keys.
+    for key in ('instructions', 'task', 'description'):
+        value = version.config.get(key)
+        if isinstance(value, str) and value.strip():
+            fragments.append(block_text(value))
+    for criterion in version.config.get('criteria', []):
+        if isinstance(criterion, dict):
+            fragments.append(f"Критерий: {criterion.get('title', '')}. {criterion.get('description', '')}")
+    document = getattr(submission, 'workspace_document', None) if submission else None
+    if document:
+        fragments.append('Текущая работа обучающегося: ' + rich_text(document.content))
+    fragments.append('Помогай разобраться с текущим заданием и улучшить решение. Не выполняй итоговое тестирование за пользователя.')
+    content = '\n\n'.join(fragment for fragment in fragments if fragment)
+    if len(content) > 120000:
+        raise ValidationError({'detail': 'Материал практики слишком большой для одного диалога.'})
+    return item, course, content

@@ -17,6 +17,8 @@ def calculate_readiness(theory, practice, errors, competency):
 
 
 def module_states(user, course, *, modules=None, progress_rows=None):
+    if course.certificate_enabled:
+        modules = course.modules.order_by('position', 'id')
     if progress_rows is None:
         progress_rows = UserModuleProgress.objects.filter(user=user, module__course=course)
     if modules is None:
@@ -27,7 +29,10 @@ def module_states(user, course, *, modules=None, progress_rows=None):
     for module in modules:
         row = progress.get(module.pk)
         completed = bool(row and row.is_completed)
-        locked = bool(course.adaptive_learning_enabled and not previous_completed)
+        if course.certificate_enabled:
+            from .journey import module_completion
+            completed = module.is_published and module_completion(user, module)['completed']
+        locked = bool((course.adaptive_learning_enabled or course.certificate_enabled) and not previous_completed)
         states[module.short_id] = {
             'id': module.pk, 'status': 'locked' if locked else 'completed' if completed else 'repeat' if row and row.attempts else 'available',
             'is_locked': locked, 'is_completed': completed, 'threshold': module.adaptive_threshold,
@@ -39,14 +44,14 @@ def module_states(user, course, *, modules=None, progress_rows=None):
 
 
 def module_is_locked(user, module):
-    if not module.course.adaptive_learning_enabled:
+    if not (module.course.adaptive_learning_enabled or module.course.certificate_enabled):
         return False
     return module_states(user, module.course).get(module.short_id, {}).get('is_locked', True)
 
 
 def request_module_is_locked(request, module):
     from common.permissions import is_admin
-    if not request or is_admin(request.user) or not module.course.adaptive_learning_enabled:
+    if not request or is_admin(request.user) or not (module.course.adaptive_learning_enabled or module.course.certificate_enabled):
         return False
     if not hasattr(request, '_adaptive_module_states'):
         request._adaptive_module_states = {}

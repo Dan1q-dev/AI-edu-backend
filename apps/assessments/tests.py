@@ -38,7 +38,8 @@ class PlatformFlowTests(TestCase):
         self.assertEqual(User.objects.get(email='new@example.test').role, 'STUDENT')
         self.assertEqual(User.objects.get(email='new@example.test').learning_track, self.track)
         missing_track = {'email': 'missing@example.test', 'password': 'NewPass321!'}
-        self.assertEqual(self.call(anonymous, 'post', path, missing_track).status_code, 400)
+        self.assertEqual(self.call(anonymous, 'post', path, missing_track).status_code, 201)
+        self.assertIsNone(User.objects.get(email='missing@example.test').learning_track)
         inactive = LearningTrack.objects.create(title='Closed', is_published=True, is_active=False)
         closed_payload = {'email': 'closed@example.test', 'password': 'NewPass321!', 'learning_track': inactive.id}
         self.assertEqual(self.call(anonymous, 'post', path, closed_payload).status_code, 400)
