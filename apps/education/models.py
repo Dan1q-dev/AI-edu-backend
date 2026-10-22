@@ -1,4 +1,5 @@
 import secrets
+import uuid
 from django.conf import settings
 from django.utils.text import slugify
 from django.db import models
@@ -43,6 +44,9 @@ class Course(ShortIdModel):
     position = models.PositiveIntegerField(default=0)
     is_published = models.BooleanField(default=False)
     adaptive_learning_enabled = models.BooleanField(default=False)
+    certificate_enabled = models.BooleanField(default=False)
+    certificate_hours = models.PositiveSmallIntegerField(default=72, validators=[MinValueValidator(1), MaxValueValidator(1000)])
+    certificate_module_count = models.PositiveSmallIntegerField(default=3, validators=[MinValueValidator(1), MaxValueValidator(50)])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     class Meta:
@@ -193,3 +197,19 @@ class UserLearningItemProgress(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['user', 'learning_item'], name='unique_user_learning_item_progress')]
+
+
+class Certificate(models.Model):
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=PROTECT, related_name='certificates')
+    course = models.ForeignKey(Course, on_delete=PROTECT, related_name='certificates')
+    learner_name = models.CharField(max_length=301)
+    course_title = models.CharField(max_length=200)
+    track_title = models.CharField(max_length=200)
+    hours = models.PositiveSmallIntegerField()
+    completed_at = models.DateTimeField()
+    issued_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'course'], name='unique_user_course_certificate')]

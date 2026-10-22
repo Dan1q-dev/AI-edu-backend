@@ -151,6 +151,17 @@ class AdaptiveLearningTests(TestCase):
         self.assertIsNone(self.submit()['adaptive_result'])
         self.assertFalse(UserModuleProgress.objects.exists())
 
+    def test_certificate_program_keeps_the_same_adaptive_pass_rule(self):
+        self.course.certificate_enabled = True
+        self.course.save()
+        self.first.adaptive_threshold = 40
+        self.first.save()
+        self.prepare()
+        response = self.submit(2)
+        self.assertFalse(response['passed'])
+        self.assertTrue(response['adaptive_result']['module_passed'])
+        self.assertEqual(self.client.get(f'/api/v1/items/{self.next_lecture.short_id}/').status_code, 200)
+
     def test_passing_test_percentage_does_not_replace_module_readiness(self):
         self.prepare([False, False])
         attempt = self.submit(3)

@@ -4,6 +4,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from apps.accounts import views as accounts
 from apps.accounts import admin_views as admin_accounts
 from apps.education import views as education
+from apps.education import certificates
 from apps.lessons import views as lessons
 from apps.assessments import views as assessments
 from apps.mediafiles import views as mediafiles
@@ -32,6 +33,11 @@ urlpatterns = [
     path('api/v1/courses/', education.CourseList.as_view()),
     path('api/v1/courses/<str:slug>/', education.CourseDetail.as_view()),
     path('api/v1/courses/<str:slug>/progress/', education.CourseProgressView.as_view()),
+    path('api/v1/courses/<str:slug>/journey/', certificates.JourneyView.as_view()),
+    path('api/v1/courses/<str:slug>/certificate/', certificates.IssueCertificateView.as_view()),
+    path('api/v1/certificates/<uuid:token>/', certificates.CertificateView.as_view()),
+    path('api/v1/certificates/<uuid:token>/download/', certificates.CertificateDownloadView.as_view()),
+    path('api/v1/certificates/<uuid:token>/qr/', certificates.CertificateQRView.as_view()),
     path('api/v1/modules/', education.ModuleList.as_view()),
     path('api/v1/modules/<str:short_id>/', education.ModuleDetail.as_view()),
     path('api/v1/items/', education.LearningItemList.as_view()),

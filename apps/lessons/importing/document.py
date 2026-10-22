@@ -36,7 +36,8 @@ def element_node(element):
         return {'type': 'table', 'content': [
             {'type': 'tableRow', 'content': [
                 {'type': 'tableHeader' if cell.get('header') else 'tableCell',
-                 'attrs': {'colspan': cell.get('colspan', 1), 'rowspan': cell.get('rowspan', 1)},
+                 'attrs': {'colspan': cell.get('colspan', 1), 'rowspan': cell.get('rowspan', 1),
+                           **({'backgroundColor': cell['background']} if cell.get('background') else {})},
                  'content': [paragraph(cell.get('text', ''), cell.get('inline'))]} for cell in row]} for row in rows]}
     return body
 

@@ -19,7 +19,7 @@ class UserSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(validators=[UniqueValidator(queryset=User.all_objects.all(), lookup='iexact')])
     password = serializers.CharField(write_only=True, trim_whitespace=False)
-    learning_track = serializers.PrimaryKeyRelatedField(queryset=LearningTrack.objects.filter(is_active=True, is_published=True))
+    learning_track = serializers.PrimaryKeyRelatedField(queryset=LearningTrack.objects.filter(is_active=True, is_published=True), required=False)
     class Meta:
         model = User
         fields = ['email', 'first_name', 'last_name', 'password', 'learning_track']

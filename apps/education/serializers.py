@@ -12,7 +12,7 @@ class CourseSerializer(serializers.ModelSerializer):
     slug = serializers.SlugField(required=False, allow_blank=True, allow_unicode=True)
     class Meta:
         model = Course
-        fields = ['id', 'short_id', 'learning_track', 'title', 'slug', 'description', 'cover', 'position', 'is_published', 'adaptive_learning_enabled', 'created_at', 'updated_at']
+        fields = ['id', 'short_id', 'learning_track', 'title', 'slug', 'description', 'cover', 'position', 'is_published', 'adaptive_learning_enabled', 'certificate_enabled', 'certificate_hours', 'certificate_module_count', 'created_at', 'updated_at']
         read_only_fields = ['id', 'short_id', 'created_at', 'updated_at']
     def validate(self, attrs):
         track = attrs.get('learning_track', getattr(self.instance, 'learning_track', None))

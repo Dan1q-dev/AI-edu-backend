@@ -95,13 +95,13 @@ class TutorChatView(GenericAPIView):
         data = serializer.validated_data
         lesson, course, content = lesson_context(request.user, data['context_type'], data['context_id'])
         payload = {
-            'session_id': f'platform:{request.user.pk}:{lesson.pk}:{data["session_id"]}',
+            'session_id': f'platform:{request.user.pk}:{"practice:" if getattr(lesson, "type", None) == "PRACTICE" else ""}{lesson.pk}:{data["session_id"]}',
             'messages': data['messages'],
             'course_id': course.short_id,
             'lesson_id': lesson.short_id,
             'lesson_title': lesson.title,
             'lesson_content': content,
-            'locateInLecture': True,
+            'locateInLecture': getattr(lesson, 'type', None) != 'PRACTICE',
             'client_metadata': {'platform': 'ai-edu', 'user_id': str(request.user.pk)},
         }
         if data['avatar_speech']:

@@ -48,6 +48,8 @@ def learning_summaries(user, courses):
             'id': course.pk, 'short_id': course.short_id, 'slug': course.slug, 'title': course.title,
             'description': course.description, 'cover': course.cover_id,
             'learning_track_title': course.learning_track.title if course.learning_track_id else None,
+            'certificate_enabled': course.certificate_enabled,
+            'certificate_hours': course.certificate_hours,
             'percent': 100 if completed else min(99, round(sum(progress[item.pk].progress_percent for item in members if item.pk in progress) / len(members))) if members else 0,
             'completed_items': completed_count, 'total_items': len(members),
             'is_started': last_activity is not None, 'is_completed': completed, 'last_activity_at': last_activity,

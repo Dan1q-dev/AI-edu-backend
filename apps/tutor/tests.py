@@ -21,6 +21,34 @@ class FakeStream(io.BytesIO):
 
 @override_settings(AI_SERVICE_URL='http://ai.internal:3001', AI_SERVICE_API_KEY='server-only-key', AI_TUTOR_RATE='100/min')
 class TutorTests(TestCase):
+    @patch('apps.tutor.views.urlopen')
+    def test_practice_tutor_uses_current_assignment_without_lecture_or_hidden_config(self, open_mock):
+        from apps.activities.testing import configure_checklist
+        practice = LearningItem.objects.create(module=self.module, type='PRACTICE', title='Анализ результатов',
+            description='Сопоставьте данные и обоснуйте вывод.', position=1, status='PUBLISHED')
+        configure_checklist(practice, ['Проверьте исходные данные'])
+        open_mock.return_value = FakeStream(b'event: done\ndata: {}\n\n')
+        response = self.post(context_id=practice.short_id)
+        self.assertEqual(response.status_code, 200, response)
+        b''.join(response.streaming_content)
+        payload = json.loads(open_mock.call_args.args[0].data)
+        self.assertIn('Анализ результатов', payload['lesson_content'])
+        self.assertIn('Проверьте исходные данные', payload['lesson_content'])
+        self.assertNotIn(self.block.content, payload['lesson_content'])
+        self.assertFalse(payload['locateInLecture'])
+        self.assertIn(f':practice:{practice.pk}:', payload['session_id'])
+
+    @patch('apps.tutor.views.urlopen')
+    def test_unpublished_or_other_track_practice_cannot_use_tutor(self, open_mock):
+        from apps.activities.testing import configure_checklist
+        practice = LearningItem.objects.create(module=self.module, type='PRACTICE', title='Task', position=1, status='PUBLISHED')
+        self.assertEqual(self.post(context_id=practice.short_id).status_code, 400)
+        configure_checklist(practice, ['One'])
+        self.user.learning_track = LearningTrack.objects.create(title='Other', is_published=True)
+        self.user.save()
+        self.assertEqual(self.post(context_id=practice.short_id).status_code, 404)
+        open_mock.assert_not_called()
+
     def setUp(self):
         cache.clear()
         self.track = LearningTrack.objects.create(title='IT', is_published=True)

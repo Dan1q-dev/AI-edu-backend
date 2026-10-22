@@ -35,7 +35,7 @@ def can_access_lesson(user, lesson):
 def can_access_item(user, item):
     if item.deleted_at is not None or item.module.deleted_at is not None:
         return False
-        // the item must be published, the module must be published, the user must have access to the course, and the module must not be locked for the user
+    # The item and module must be published; course access and module locks still apply.
     if is_admin(user):
         return True
     course = item.module.course

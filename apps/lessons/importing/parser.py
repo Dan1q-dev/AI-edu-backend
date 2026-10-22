@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image
 from .document import ImportFailure
 from .quality import pdf_ocr_mode, uncertain_elements, page_ranges
-from .office import W, A, WordLists, run_colors, presentation_properties
+from .office import W, A, WordLists, run_colors, presentation_properties, hex_color
 
 
 def pdf_page_modes(path, max_pages):
@@ -184,7 +184,9 @@ class Extractor:
                         text = cell.text if cell._tc not in seen else ''
                         inline = self.office_cell(cell) if cell._tc not in seen else None
                         seen.add(cell._tc)
-                        cells.append({'text': text, 'inline': inline})
+                        shading = cell._tc.find('.//{%s}tcPr/{%s}shd' % (W, W))
+                        background = hex_color(shading.get('{%s}fill' % W)) if shading is not None else None
+                        cells.append({'text': text, 'inline': inline, **({'background': background} if background else {})})
                     rows.append(cells)
                 self.add('table', rows=rows, page=None)
                 images(block._tbl)
