@@ -8,6 +8,23 @@ from .importing.parser import Extractor
 
 
 class ImportFormattingTests(SimpleTestCase):
+    def test_word_table_background_preserves_readability_of_white_text(self):
+        from docx import Document
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        from docx.shared import RGBColor
+        document = Document()
+        cell = document.add_table(rows=1, cols=1).cell(0, 0)
+        cell.paragraphs[0].add_run('White on blue').font.color.rgb = RGBColor.from_string('FFFFFF')
+        shading = OxmlElement('w:shd')
+        shading.set(qn('w:fill'), '17365D')
+        cell._tc.get_or_add_tcPr().append(shading)
+        with TemporaryDirectory() as folder:
+            nodes = self.extract_nodes(document, 'docx', folder)
+        imported = nodes[0]['content'][0]['content'][0]
+        self.assertEqual(imported['attrs']['backgroundColor'], '#17365d')
+        self.assertEqual(imported['content'][0]['content'][0]['marks'][0]['attrs']['color'], '#ffffff')
+
     def extract_nodes(self, document, extension, folder):
         source = Path(folder) / ('source.' + extension)
         document.save(source)

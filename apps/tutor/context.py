@@ -115,6 +115,8 @@ def practice_context(user, item):
     # Only student-visible fields; never include reference solutions or test keys.
     for key in ('instructions', 'task', 'description'):
         value = version.config.get(key)
+        if key == 'instructions' and isinstance(value, list):
+            fragments.extend(block_text(part) for part in value if isinstance(part, str))
         if isinstance(value, str) and value.strip():
             fragments.append(block_text(value))
     for criterion in version.config.get('criteria', []):
@@ -123,6 +125,8 @@ def practice_context(user, item):
     document = getattr(submission, 'workspace_document', None) if submission else None
     if document:
         fragments.append('Текущая работа обучающегося: ' + rich_text(document.content))
+    if submission and isinstance(submission.submission_data.get('report'), str):
+        fragments.append('Отчёт обучающегося: ' + submission.submission_data['report'])
     fragments.append('Помогай разобраться с текущим заданием и улучшить решение. Не выполняй итоговое тестирование за пользователя.')
     content = '\n\n'.join(fragment for fragment in fragments if fragment)
     if len(content) > 120000:

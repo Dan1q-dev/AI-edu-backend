@@ -97,6 +97,9 @@ from .workspace.lecture import make_lecture_plugin
 lecture_plugin = make_lecture_plugin(ChecklistPlugin)
 registry.register(lecture_plugin)
 
+from .assignment import make_assignment_plugin
+registry.register(make_assignment_plugin(ChecklistPlugin))
+
 # Keep pinned historical assignments usable with the same chat runtime.
 class LegacyPracticePlugin(type(lecture_plugin)):
     manifest = {**lecture_plugin.manifest, 'type': 'checklist_practice', 'available': False}
